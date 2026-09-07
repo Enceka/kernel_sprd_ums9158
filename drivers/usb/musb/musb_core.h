@@ -643,6 +643,7 @@ static inline void musb_set_hsbt(struct musb *musb, int is_tx)
  * if the property is not found or not recognized returns MUSB_OTG
  */
 extern enum musb_mode musb_get_mode(struct device *dev);
+extern int musb_reset_all_fifo_2_default(struct musb *musb);
 
 static inline void musb_set_state(struct musb *musb,
 				  enum usb_otg_state otg_state)

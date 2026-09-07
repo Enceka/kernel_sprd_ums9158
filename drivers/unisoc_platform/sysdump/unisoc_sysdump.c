@@ -14,6 +14,10 @@
 #define pr_fmt(fmt)  "sysdump: " fmt
 
 #include <linux/atomic.h>
+
+#ifndef VERSION_OF
+#define VERSION_OF "VERSION_OF_KERNEL:ts305_e5"
+#endif
 #include <asm/cacheflush.h>
 #include <linux/delay.h>
 #include <linux/elf.h>

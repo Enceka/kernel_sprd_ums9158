@@ -82,3 +82,4 @@
 #define VIRTIO_TRANS_ID_9P		0x1009 /* transitional virtio 9p console */
 
 #endif /* _LINUX_VIRTIO_IDS_H */
+#define VIRTIO_ID_TRUSTY_IPC		13 /* virtio trusty ipc */

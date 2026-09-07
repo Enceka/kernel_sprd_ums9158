@@ -287,6 +287,7 @@ struct gsp_r9p0_hdr10_cfg {
 	int reg_hdr_tmlut_data;
 
 	__u32 hdr_tone_mapping_lut_table[HDR_TM_LUT_SIZE];
+	__u32 hdr_regamma_lut_table[1024]; /* HDR_REGAMMA_LUT_SIZE */
 };
 
 struct gsp_r9p0_misc_cfg_user {
