@@ -1,0 +1,300 @@
+// SPDX-License-Identifier: (Licenseref-Unisoc-General-1.0 OR GPL-2.0-only)
+/*
+ * e5-rongyue-overlay.dts - Rongyue E5 customer overlay (Unisoc UMS9621)
+ *
+ * Reconstructed from the device live FDT (kernel_probe/e5.dts) using
+ * motorola-sprd-andriod-14-release-uoa34 ums9621-1h10-overlay.dts as the
+ * board template. Base: ums9621-base.dtb (model/compatible/sc-id match the
+ * device exactly). Values in hex are taken verbatim from the device FDT.
+ */
+
+/dts-v1/;
+/plugin/;
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/clock/sprd,ums9621-clk.h>
+#include <dt-bindings/usb/pd.h>
+#include <dt-bindings/input/input.h>
+#include "lcd/lcd_nt36528_kti_mipi_hdp.dtsi"
+#include "lcd/lcd_g40396_truly_mipi_fhd.dtsi"
+#include "lcd/amoled_g3655fp103ff_visionox_mipi_fhd.dtsi"
+#include "lcd/lcd_td4320_truly_mipi_fhd.dtsi"
+#include "lcd/lcd_dummy_mipi.dtsi"
+#include "reserved-memory/ums9621-1h10-overlay.dtsi"
+#include "touchscreen/ums9621-spi1-gpio13-14-tp.dtsi"
+#include "battery/ums9621-1h10-overlay.dtsi"
+#include <dt-bindings/mfd/sprd,ump9620-regs.h>
+#include <dt-bindings/mfd/sprd,ump9620-mask.h>
+#include "wcn/wcn_modules.h"
+#include "wcn/interface/wcn-sdio-register.dtsi"
+#include "wcn/chip/wcn-marlin3lite-umw2652-register.dtsi"
+
+/* NOTE: bat2/bat3/virtual_typec/pa5g-sensor/pdbg remain from the base;
+ * the device build removed them, but /delete-node/ cannot reference base
+ * labels from a /plugin/ overlay at compile time. They are unused on E5. */
+/ {
+	fragment {
+		target-path = "/";
+		__overlay__ {
+			dtbo: dtbo {
+				compatible = "sprd,dtbo-test";
+				reg = <0x0 0x0 0x0 0x11>;
+			};
+
+			sprd_marlin3: sprd-marlin3 {
+				compatible = "unisoc,marlin3lite_sdio";
+				m2-wakeup-ap-gpios = <&ap_gpio 128 GPIO_ACTIVE_LOW>;
+				reset-gpios = <&ap_gpio 172 GPIO_ACTIVE_LOW>;
+				enable-gpios = <&ap_gpio 171 GPIO_ACTIVE_LOW>;
+				m2-to-ap-irq-gpios = <&ap_gpio 173 GPIO_ACTIVE_LOW>;
+				avdd12-supply = <&vddwcn>;
+				avdd33-supply = <&vddwifipa>;
+				dcxo18-supply = <&vddsim2>;
+				clock-names = "clk_32k", "source", "enable";
+				clocks = <&aonapb_gate CLK_AUX0>,
+					 <&ext_32k>,
+					 <&aonapb_gate CLK_AUX0_EB>;
+				extcon = <&sdio1>;
+				sdhci-name = <&sdio1>;
+				sprd,check-emmc-ufs = "need_to_check_emmc_or_ufs";
+				sprd,btwf-file-name = "/dev/block/by-name/wcnmodem";
+				sprd,gnss-file-name = "/vendor/firmware/gnssmodem.bin";
+				sprd,gnss-dump-reg-number = <0x04>;
+				sprd,gnss-dump-packet-size = <0x8000>;
+				sprd,gnss-firmware-max-size = <0x2b000>;
+				sprd,gnss-cp-start-addr = <0x40a50000>;
+				adma-tx;
+				adma-rx;
+				btwf-wakeup-lock;
+				n79-mode-support;
+				avdd12-bound-wbreq = <REG_ANA_LDO_XTL_EN10 MASK_ANA_LDO_VDDWCN_EXT_XTL3_EN 0x0 MASK_ANA_LDO_VDDWCN_EXT_XTL3_EN>;
+				avdd33-bound-wbreq = <REG_ANA_LDO_XTL_EN11 MASK_ANA_LDO_VDDWIFIPA_EXT_XTL3_EN 0x0 MASK_ANA_LDO_VDDWIFIPA_EXT_XTL3_EN>;
+
+				wlan {
+					compatible = "sprd,sc2355-sdio-wifi";
+					enable-n79;
+				};
+
+				gnss {
+					compatible = "sprd,gnss";
+				};
+
+				sprd-mtty {
+					compatible = "sprd,mtty";
+					sprd,name = "ttyBT";
+				};
+
+				sprd-fm {
+					compatible = "sprd,marlin3-fm";
+					sprd,name = "sprd-fm";
+				};
+			};
+
+			hwfeature {
+				auto {
+					efuse_raw = "2auto/chipid_raw=0";
+					chipid = "UMS9621-AA";
+					efuse = "T158";
+				};
+
+				lwfq {
+					type = "-1";
+				};
+			};
+
+			flash-gpios {
+				compatible = "sprd,flash-aw3641";
+				flash-en-gpios = <&ap_gpio 187 0>;
+				flash-torch-en-gpios = <&ap_gpio 188 0>;
+			};
+
+			fingerprint@0 {
+				compatible = "microarray,afs121";
+				fpint-gpios = <&eic_async 29 0>;
+			};
+
+			sprd-uid {
+				compatible = "sprd,uid";
+				nvmem-cells = <&uid_start>, <&uid_end>;
+			};
+
+			front_sensor: front-sensor {
+				compatible = "sprd,shell-thermal";
+				#thermal-sensor-cells = <0>;
+				sensor-names = "board-thmzone", "pa-thmzone", "chg-thmzone";
+			};
+
+			back_sensor: back-sensor {
+				compatible = "sprd,shell-thermal";
+				#thermal-sensor-cells = <0>;
+				sensor-names = "board-thmzone", "pa-thmzone", "chg-thmzone";
+			};
+
+			gpio-keys {
+				compatible = "gpio-keys";
+
+				key-volumedown {
+					label = "Volume Down Key";
+					linux,code = <KEY_VOLUMEDOWN>;
+					gpios = <&ap_gpio 127 GPIO_ACTIVE_LOW>;
+					debounce-interval = <2>;
+					wakeup-source;
+				};
+
+				key-volumeup {
+					label = "Volume Up Key";
+					linux,code = <KEY_VOLUMEUP>;
+					gpios = <&pmic_eic 4 GPIO_ACTIVE_HIGH>;
+					debounce-interval = <2>;
+					wakeup-source;
+				};
+
+				key-power {
+					label = "Power Key";
+					linux,code = <KEY_POWER>;
+					gpios = <&pmic_eic 1 GPIO_ACTIVE_LOW>;
+					debounce-interval = <2>;
+					wakeup-source;
+				};
+
+				key-smartvoice {
+					label = "smart voice Key";
+					linux,code = <0x3b>;
+					gpios = <&ap_gpio 191 GPIO_ACTIVE_LOW>;
+					debounce-interval = <2>;
+					wakeup-source;
+				};
+			};
+
+			debuglog {
+				compatible = "sprd,debuglog";
+				sprd,pdbg-irq-domain-gic = "GICv3";
+				sprd,pdbg-irq-domain-gpio = "sprd-gpio";
+				sprd,pdbg-irq-domain-ana = "spi4.0";
+				sprd,pdbg-irq-domain-ana-eic = "64400000.spi:pmic@0:gpio@280";
+				sprd,pdbg-irq-domain-ap-eic-dbnc = "64200000.gpio";
+				sprd,pdbg-irq-domain-ap-eic-latch = "64200080.gpio";
+				sprd,pdbg-irq-domain-ap-eic-async = "642000a0.gpio";
+			};
+
+			debugstat {
+				compatible = "sprd,debugstat";
+				soc_slp_cnt_reg = <0x48 0xe60 0xff>;
+			};
+		};
+	};
+};
+
+&bat {
+	compatible = "simple-battery";
+	status = "okay";
+	charge-full-design-microamp-hours = <0x2f0710>;
+	charge-term-current-microamp = <0xea60>;
+	constant-charge-voltage-max-microvolt = <0x42ae50>;
+	factory-internal-resistance-micro-ohms = <0x249f0>;
+	voltage-min-design-microvolt = <0x346228>;
+	fullbatt-voltage = <0x421210>;
+	fullbatt-current = <0x1d4c0>;
+	first-fullbatt-current = <0x249f0>;
+	fullbatt-track-end-vol = <0x41fe88>;
+	fullbatt-track-end-cur = <0x1fbd0>;
+	first-calib-voltage = <0x34db40>;
+	first-calib-capacity = <0x32>;
+	batt-ovp-threshold-microvolt = <0x493e00>;
+	fullbatt-voltage-offset-microvolt = <0xafc8>;
+	ir-cv-offset-microvolt = <0x186a0>;
+	ir-rc-micro-ohms = <0x4e20>;
+	ir-us-upper-limit-microvolt = <0x44aa20>;
+	ocv-capacity-celsius = <0x19>;
+	ocv-capacity-table-0 = <0x420270 0x64>, <0x408f58 0x5f>, <0x3fa8e0 0x5a>,
+		<0x3e9f40 0x55>, <0x3dd808 0x50>, <0x3cfd48 0x4b>, <0x3c4998 0x46>,
+		<0x3b7a90 0x41>, <0x3ad680 0x3c>, <0x3a2e88 0x37>, <0x399e00 0x32>,
+		<0x393870 0x2d>, <0x386d50 0x28>, <0x37f050 0x23>, <0x379678 0x1e>,
+		<0x374088 0x19>, <0x36b3e8 0x14>, <0x363300 0x0f>, <0x358b08 0x0a>,
+		<0x34db40 0x05>, <0x341fc0 0x00>;
+	voltage-temp-table = <0x108a60 0x320>, <0xee098 0x352>, <0xd3ea0 0x384>,
+		<0xbac48 0x3b6>, <0xa3160 0x3e8>, <0x8d9a0 0x41a>, <0x7a508 0x44c>,
+		<0x68fb0 0x47e>, <0x5a168 0x4b0>, <0x4ce78 0x4e2>, <0x41eb0 0x514>,
+		<0x38658 0x546>, <0x30188 0x578>, <0x29428 0x5aa>, <0x23668 0x5dc>,
+		<0x1e848 0x60e>, <0x1a5e0 0x640>, <0x16b48 0x672>;
+	capacity-temp-table = <0x19 0x64>, <0x0a 0x61>, <0xfffffff6 0x5a>;
+	resistance-temp-table = <0x19 0x64>, <0x0a 0xf3>, <0xfffffff6 0x1d4>;
+	charge-sdp-current-microamp = <0x7a120 0x7a120>;
+	charge-dcp-current-microamp = <0x192d50 0x192d50>;
+	charge-cdp-current-microamp = <0x192d50 0x192d50>;
+	charge-unknown-current-microamp = <0x192d50 0x192d50>;
+	cap-calib-energy-density-ocv-table = <0x331df0 0x39fbc0>, <0x3f52f0 0x426030>;
+	cap-track-energy-density-ocv-table = <0x33e140 0x38cb10>;
+	dcp-jeita-temp-table = <0x3e8 0x3e8 0x00 0x423920>, <0x47e 0x47e 0x9eb10 0x423920>,
+		<0x5aa 0x5aa 0x192d50 0x42ae50>, <0x60e 0x60e 0x9eb10 0x423920>;
+	sdp-jeita-temp-table = <0x3e8 0x3e8 0x00 0x423920>, <0x47e 0x47e 0x7a120 0x423920>,
+		<0x5aa 0x5aa 0x7a120 0x42ae50>, <0x60e 0x60e 0x7a120 0x423920>;
+	cdp-jeita-temp-table = <0x3e8 0x3e8 0x00 0x423920>, <0x47e 0x47e 0x9eb10 0x423920>,
+		<0x5aa 0x5aa 0x192d50 0x42ae50>, <0x60e 0x60e 0x7a120 0x423920>;
+	unknown-jeita-temp-table = <0x3e8 0x3e8 0x00 0x423920>, <0x47e 0x47e 0x9eb10 0x423920>,
+		<0x5aa 0x5aa 0x192d50 0x42ae50>, <0x60e 0x60e 0x9eb10 0x423920>;
+};
+
+&cm {
+	cm-keep-awake;
+	cm-capacity-track;
+	monitored-battery = <&bat>;
+	cm-cap-remap-table = <0x01 0x02 0x03 0x02 0x03 0x02 0x62 0x63 0x02 0x63 0x64 0x03>;
+	cm-charge-voltage-drop = <0xaae60>;
+	cm-charge-voltage-max = <0x5d1420>;
+	cm-thermal-zone = "board-thmzone";
+	cm-one-cap-time = <0x1e>;
+	cm-tickle-time-out = <0x5dc>;
+	cm-shutdown-voltage = <0x2f4d60>;
+	cm-wdt-interval = <0x3c>;
+	cm-discharging-max = <0x2932e0>;
+	cm-charging-max = <0x1499700>;
+	cm-battery-temp-diff = <0x64>;
+	cm-battery-hot = <0x320>;
+	cm-battery-cold-in-minus;
+	cm-battery-cold = <0xc8>;
+	cm-fuel-gauge = "sc27xx-fgu";
+	cm-chargers = "aw322xx_charger";
+	cm-fullbatt-capacity = <0x64>;
+	cm-fullbatt-vchkdrop-volt = <0x13880>;
+	cm-fullbatt-vchkdrop-ms = <0x7530>;
+	cm-battery-stat = <0x02>;
+	cm-poll-interval = <0x3a98>;
+	cm-poll-mode = <0x02>;
+	cm-name = "battery";
+	status = "okay";
+};
+
+&i2c2 {
+	charger@6a {
+		compatible = "awinic,aw322xx_chg";
+		reg = <0x6a>;
+		aw322xx,r_sns = <0x21>;
+		monitored-battery = <&bat>;
+
+		otg-vbus {
+			regulator-name = "vddvbus";
+		};
+	};
+};
+
+&i2c6 {
+	flash-ic@63 {
+		compatible = "sprd,flash-aw3641";
+		reg = <0x63>;
+		flash-en-gpios = <&ap_gpio 187 0>;
+		flash-torch-en-gpios = <&ap_gpio 188 0>;
+	};
+};
+
+&front_thmzone {
+	thermal-sensors = <&front_sensor>;
+};
+
+&back_thmzone {
+	thermal-sensors = <&back_sensor>;
+};
+
+&skin_thmzone {
+	thermal-sensors = <&front_sensor>;
+};
