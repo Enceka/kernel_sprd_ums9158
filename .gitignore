@@ -161,3 +161,10 @@ x509.genkey
 
 # Documentation toolchain
 sphinx_*/
+
+# Rongyue E5 build artifacts (regenerable via build_e5.sh / make_e5_dtb.sh /
+# stage_vendor_modules.sh / repack_boot_e5.sh)
+/boot-e5.img
+/vendor_modules_e5/
+/artifacts_e5/*.tar.gz
+/nohup.out
