@@ -1452,20 +1452,6 @@
   crypto_register_skcipher
   crypto_unregister_skcipher
 
-# required by batman-adv.ko
-  br_multicast_has_querier_adjacent
-  br_multicast_has_querier_anywhere
-  br_multicast_has_router_adjacent
-  br_multicast_list_adjacent
-  crc32c
-  dev_get_iflink
-  ip_mc_check_igmp
-  ipv6_mc_check_mld
-  netdev_master_upper_dev_get_rcu
-  netif_rx_any_context
-  skb_prepare_seq_read
-  skb_seq_read
-
 # required by blk-mq-virtio.ko
   blk_mq_map_queues
 
@@ -1915,6 +1901,7 @@
   usb_role_switch_register
   usb_role_switch_unregister
   usb_speed_string
+  usb_udc_vbus_handler
 
 # required by npu_img_vha.ko
   debugfs_create_u64
@@ -1923,9 +1910,6 @@
   do_exit
   of_irq_get_byname
   yield
-
-# required by ntfs3.ko
-  posix_acl_create
 
 # required by nu1619_wireless_charger.ko
   regmap_bulk_read
@@ -2112,7 +2096,6 @@
   dev_pm_opp_of_register_em
   dev_pm_opp_of_remove_table
   dev_pm_opp_put
-  dev_pm_opp_remove_table
   dma_buf_attach
   dma_buf_begin_cpu_access
   dma_buf_detach
@@ -2122,6 +2105,10 @@
   dma_buf_get
   dma_buf_map_attachment
   dma_buf_mmap
+  dmabuf_page_pool_alloc
+  dmabuf_page_pool_create
+  dmabuf_page_pool_destroy
+  dmabuf_page_pool_free
   dma_buf_put
   dma_buf_unmap_attachment
   dma_buf_vmap
@@ -2139,7 +2126,6 @@
   down_write
   drm_dev_unregister
   drm_gem_cma_vmap
-  drm_gem_dmabuf_export
   drm_gem_objects_lookup
   drm_gem_shmem_get_pages_sgt
   drm_gem_shmem_madvise
@@ -2189,7 +2175,6 @@
   sync_file_get_fence
   __task_pid_nr_ns
   trace_set_clr_event
-  tracing_on
   unmap_mapping_range
   unregister_shrinker
   unregister_sysctl_table
