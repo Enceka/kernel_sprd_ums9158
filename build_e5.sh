@@ -7,7 +7,16 @@ cd "$(dirname "$0")"
 export ARCH=arm64
 export LLVM=1
 export LLVM_IAS=1
-O="\${O:-out_e5}"
+O="${O:-out_e5}"
+
+# Unisoc DT overlay build (same wiring as moto/ulas SDK: qogirn6l family).
+# With these exported, arch/arm64/boot/dts/sprd/Makefile selects the
+# qogirn6l dtbo list, and scripts/Makefile.dtbo (included from
+# scripts/Makefile.build) builds each .dtbo against its -base .dtb.
+export BSP_BUILD_DT_OVERLAY=y
+export BSP_BUILD_ANDROID_OS=y
+export BSP_BUILD_FAMILY=qogirn6l
+export CONFIG_DTB_ORIGINAL=y
 
 # clang22 is newer than the kernel's clang14 reference build; silence warnings
 # that are promoted to errors by -Werror in 5.15.
@@ -24,6 +33,6 @@ make O="$O" -j"$(nproc)" KCFLAGS="$KCFLAGS" Image modules dtbs
 
 echo "== build summary =="
 ls -la "$O/arch/arm64/boot/Image"
-echo "dtbs:"
-ls "$O/arch/arm64/boot/dts/sprd/" | grep -E 'e5|ums9621' || true
+echo "sprd dtbs:"
+ls "$O/arch/arm64/boot/dts/sprd/" | grep -E "e5|ums9621" || true
 echo "modules: $(find "$O" -name '*.ko' | wc -l) .ko files"
