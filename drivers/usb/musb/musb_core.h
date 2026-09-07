@@ -538,8 +538,6 @@ extern irqreturn_t musb_interrupt(struct musb *);
 
 extern void musb_hnp_stop(struct musb *musb);
 
-extern int musb_reset_all_fifo_2_default(struct musb *musb);
-
 int musb_queue_resume_work(struct musb *musb,
 			   int (*callback)(struct musb *musb, void *data),
 			   void *data);
@@ -645,5 +643,16 @@ static inline void musb_set_hsbt(struct musb *musb, int is_tx)
  * if the property is not found or not recognized returns MUSB_OTG
  */
 extern enum musb_mode musb_get_mode(struct device *dev);
+
+static inline void musb_set_state(struct musb *musb,
+				  enum usb_otg_state otg_state)
+{
+	musb->xceiv->otg->state = otg_state;
+}
+
+static inline enum usb_otg_state musb_get_state(struct musb *musb)
+{
+	return musb->xceiv->otg->state;
+}
 
 #endif	/* __MUSB_CORE_H__ */
