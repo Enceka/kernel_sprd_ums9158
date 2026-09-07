@@ -1,13 +1,22 @@
 #!/bin/bash
-# repack_boot_e5.sh - repack Rongyue E5 boot image with the rebuilt kernel
+# repack_boot_e5.sh - in-place kernel swap for the Rongyue E5 boot image
 #
-# Device boot chain (verified from boot_a.img / magisk_patched images):
-#   * boot image header v4 (ANDROID!), kernel = arm64 Image with EFI stub (MZ/PE)
-#   * boot.img carries NO dtb: the bootloader loads the DT from the device's
-#     own dtbo partition (the stock E5 fdt we rebuilt from). We therefore
-#     swap ONLY the kernel and keep the proven-bootable Magisk layout.
-#   * AVB is re-added with --algorithm NONE (device is unlocked; Magisk image
-#     already carries a non-matching digest and boots fine).
+# The Magisk-patched boot image is the only proven-bootable container we have:
+#   * boot header v4 (ANDROID!), kernel = arm64 Image with EFI stub (MZ/PE)
+#   * kernel payload region: [0x1000, ramdisk_off)
+#   * magisk ramdisk (lz4) directly after it
+#   * AVB footer: SHA256_RSA4096, carried over from the stock image
+#
+# We overwrite ONLY the kernel payload and zero the remainder of its region,
+# leaving the header (including kernel_size), the ramdisk and the AVB footer
+# byte-for-byte identical to the Magisk image:
+#   * kernel_size keeps the stock value, so the bootloader still loads a
+#     payload of the same length and still finds the ramdisk at the same
+#     offset (the tail of the region is only padding after the kernel end);
+#   * the AVB digest no longer matches - but the Magisk image boots today with
+#     a non-matching digest, whereas a freshly generated footer
+#     (--algorithm NONE) is a different descriptor type that the Unisoc
+#     bootloader may reject outright.
 set -e
 cd "$(dirname "$0")"
 
@@ -22,43 +31,43 @@ RESULT="${RESULT:-boot-e5.img}"
 python3 - "$BASE" "$IMAGE" "$RESULT" <<PYEOF
 import struct, sys
 base_fn, img_fn, out_fn = sys.argv[1], sys.argv[2], sys.argv[3]
-base = open(base_fn, "rb").read()
+base = bytearray(open(base_fn, "rb").read())
 img = open(img_fn, "rb").read()
 
-def pad(b, n=4096):
-    return b + b"\x00" * ((-len(b)) % n)
-
-# v4 header fields
-ks  = struct.unpack_from("<I", base, 8)[0]
-rs  = struct.unpack_from("<I", base, 12)[0]
-hsz = struct.unpack_from("<I", base, 20)[0]
-hv  = struct.unpack_from("<I", base, 40)[0]
-print("base: kernel_size=0x%x ramdisk_size=0x%x hdr_size=0x%x ver=%d" % (ks, rs, hsz, hv))
+assert base[:8] == b"ANDROID!", "not an android boot image"
+ks, rs = struct.unpack_from("<II", base, 8)
+hv, = struct.unpack_from("<I", base, 40)
+print("base: kernel_size=0x%x ramdisk_size=0x%x hv=%d" % (ks, rs, hv))
 assert hv == 4, "expected boot header v4"
 
-# magisk ramdisk starts right after the padded kernel
-kend = 0x1000 + ((ks + 4095)//4096)*4096
-ramdisk = base[kend:kend+rs]
-assert len(ramdisk) == rs, "ramdisk extraction failed"
-print("magisk ramdisk: %d bytes at 0x%x" % (len(ramdisk), kend))
+KSTART = 0x1000
+LZ4 = (bytes.fromhex("02214c18"), bytes.fromhex("04224d18"))
 
-header = bytearray(base[:0x1000])
-struct.pack_into("<I", header, 8, len(img))   # kernel_size = new Image size
-# ramdisk_size, header fields stay identical
+# locate the magisk ramdisk: page-aligned right after the kernel region
+off = KSTART + ((ks + 4095) // 4096) * 4096
+while base[off:off + 4] not in LZ4 and off < KSTART + ks + 0x10000:
+    off += 0x1000
+assert base[off:off + 4] in LZ4, "could not locate ramdisk (lz4 magic)"
+print("ramdisk: %d bytes at 0x%x" % (rs, off))
 
-content = bytes(header) + pad(img) + pad(ramdisk)
-open(out_fn, "wb").write(content)
-print("wrote %s: %d bytes (header+kernel+ramdisk)" % (out_fn, len(content)))
+region = off - KSTART
+print("kernel region: 0x%x bytes, new Image: 0x%x bytes (free 0x%x)"
+      % (region, len(img), region - len(img)))
+assert len(img) <= region, "new Image does not fit in the kernel region"
+
+out = bytearray(base)
+out[KSTART:KSTART + len(img)] = img
+out[KSTART + len(img):off] = b"\x00" * (region - len(img))
+open(out_fn, "wb").write(bytes(out))
+
+# sanity: only the kernel payload may differ from the proven-bootable base
+diff = sum(1 for a, b in zip(out, base) if a != b)
+print("wrote %s: %d bytes, %d bytes changed vs base" % (out_fn, len(out), diff))
 PYEOF
 
-# AVB: erase any old footer then add a fresh one (unsigned, unlocked device)
-avbtool erase_footer --image "$RESULT" 2>/dev/null || true
-avbtool add_hash_footer --image "$RESULT" --partition_name boot \
-    --partition_size 67108864 --algorithm NONE
-
+echo
 echo "== repacked boot image: $RESULT =="
 ls -la "$RESULT"
-avbtool info_image --image "$RESULT" | head -12
+avbtool info_image --image "$RESULT" 2>/dev/null | grep -iE "Algorithm|Original|VBMeta offset"
 echo
-echo "NOTE: kernel-only swap; the device keeps using its own dtbo partition.",
-echo "      flash with:  fastboot flash boot_a $RESULT   (or flash boot)"
+echo "flash with:  fastboot boot $RESULT   (or: fastboot flash boot_a $RESULT)"
