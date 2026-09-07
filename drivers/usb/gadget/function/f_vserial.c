@@ -70,8 +70,11 @@ struct sg_ctx {
 	ktime_t				q_time;
 };
 
-static struct workqueue_struct	*vser_tx_wq;
 #endif
+
+/* vser_tx_wq is used unconditionally below (alloc/destroy/queue), so it must
+ * not be gated on CONFIG_USB_F_VSERIAL_BYPASS_USER (not a Kconfig symbol). */
+static struct workqueue_struct	*vser_tx_wq;
 
 static const char vser_shortname[] = "vser";
 static int tx_req_count;
