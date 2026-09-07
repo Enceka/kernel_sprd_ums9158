@@ -1647,9 +1647,7 @@ void get_exception_stack_info(struct pt_regs *regs)
 	int off, plen;
 	int i;
 	unsigned int entries = 0;
-#if IS_BUILTIN(CONFIG_SPRD_SYSDUMP)
-	struct stack_trace trace;
-#elif (IS_ENABLED(CONFIG_STACKTRACE) && IS_ENABLED(CONFIG_ARCH_STACKWALK))
+#if IS_ENABLED(CONFIG_STACKTRACE)
 	unsigned int nr_entries;
 #endif
 	cur = current;
@@ -1670,16 +1668,10 @@ void get_exception_stack_info(struct pt_regs *regs)
 			"[%s, %d]", tsk->comm, tsk->pid);
 		tsk = tsk->real_parent;
 	} while (tsk && (tsk->pid != 0) && (tsk->pid != 1));
-#if IS_BUILTIN(CONFIG_SPRD_SYSDUMP)
+#if IS_ENABLED(CONFIG_STACKTRACE)
 	/* Grab kernel task stack trace */
-	trace.nr_entries = 0;
-	trace.max_entries = MAX_STACK_TRACE_DEPTH;
-	trace.entries = stack_entries;
-	trace.skip = 0;
-	save_stack_trace_tsk(cur, &trace);
-	entries = trace.nr_entries;
-#elif (IS_ENABLED(CONFIG_STACKTRACE) && IS_ENABLED(CONFIG_ARCH_STACKWALK))
-	nr_entries = stack_trace_save_tsk(cur, stack_entries, MAX_STACK_TRACE_DEPTH, 0);
+	nr_entries = stack_trace_save_tsk(cur, stack_entries,
+					  MAX_STACK_TRACE_DEPTH, 0);
 	entries = nr_entries;
 #endif
 	for (i = 0; i < entries; i++) {
