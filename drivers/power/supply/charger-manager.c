@@ -1768,3 +1768,74 @@ module_exit(charger_manager_cleanup);
 MODULE_AUTHOR("MyungJoo Ham <myungjoo.ham@samsung.com>");
 MODULE_DESCRIPTION("Charger Manager");
 MODULE_LICENSE("GPL");
+
+void cm_notify_event(struct power_supply *psy, enum cm_event_types type,
+		     char *msg)
+{
+	struct charger_manager *cm;
+	bool found_power_supply = false;
+
+	if (psy == NULL)
+		return;
+
+	mutex_lock(&cm_list_mtx);
+	list_for_each_entry(cm, &cm_list, entry) {
+		if (cm->charger_psy->desc) {
+			if (strcmp(psy->desc->name, cm->charger_psy->desc->name) == 0) {
+				found_power_supply = true;
+				break;
+			}
+		}
+
+		if (cm->desc->psy_charger_stat) {
+			if (match_string(cm->desc->psy_charger_stat, -1,
+					 psy->desc->name) >= 0) {
+				found_power_supply = true;
+				break;
+			}
+		}
+
+		if (cm->desc->psy_fuel_gauge) {
+			/*
+			 * fgu has only one string and no null pointer at the end,
+			 * only needs to compare once before exiting th loop, so 1 here and -1 elsewhere.
+			 */
+			if (match_string(&cm->desc->psy_fuel_gauge, 1,
+					 psy->desc->name) >= 0) {
+				found_power_supply = true;
+				break;
+			}
+		}
+
+		if (cm->desc->psy_cp_stat) {
+			if (match_string(cm->desc->psy_cp_stat, -1,
+					 psy->desc->name) >= 0) {
+				found_power_supply = true;
+				break;
+			}
+		}
+
+		if (cm->desc->psy_wl_charger_stat) {
+			if (match_string(cm->desc->psy_wl_charger_stat, -1,
+					 psy->desc->name) >= 0) {
+				found_power_supply = true;
+				break;
+			}
+		}
+	}
+
+	mutex_unlock(&cm_list_mtx);
+
+	if (!found_power_supply || !cm->cm_charge_vote) {
+		if (cm_event_num < CM_EVENT_TYPE_NUM) {
+			cm_event_msg[cm_event_num] = msg;
+			cm_event_type[cm_event_num++] = type;
+		} else {
+			pr_err("%s: too many cm_event_num!!\n", __func__);
+		}
+		return;
+	}
+
+	cm_notify_type_handle(cm, type, msg);
+}
+EXPORT_SYMBOL_GPL(cm_notify_event);
