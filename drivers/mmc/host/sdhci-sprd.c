@@ -1831,7 +1831,7 @@ cleanup:
 	return ret;
 }
 
-#if !IS_MODULE(CONFIG_MMC_CQHCI)
+#if !IS_ENABLED(CONFIG_MMC_CQHCI)
 int cqhci_resume(struct mmc_host *mmc)
 {
 	return -EINVAL;
