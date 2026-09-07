@@ -11,7 +11,10 @@ O="\${O:-out_e5}"
 
 # clang22 is newer than the kernel's clang14 reference build; silence warnings
 # that are promoted to errors by -Werror in 5.15.
-KCFLAGS="-Wno-frame-larger-than -Wno-deprecated-declarations"
+KCFLAGS="-Wno-frame-larger-than -Wno-deprecated-declarations -Wno-constant-conversion -Wno-uninitialized-const-pointer -Wno-unused-function"
+
+# refresh .config from the committed defconfig (picks up defconfig edits)
+cp arch/arm64/configs/e5_rongyue_defconfig "$O/.config" 2>/dev/null || true
 
 echo "== olddefconfig =="
 make O="$O" olddefconfig
