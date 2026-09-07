@@ -13,9 +13,12 @@
 #include <linux/of.h>
 #include <linux/of_device.h>
 #include <linux/platform_device.h>
+#include <linux/panic_notifier.h>
 #include <linux/reboot.h>
 #include <linux/spi/spi.h>
 #include <linux/sizes.h>
+#include <linux/seq_buf.h>
+#include <../drivers/unisoc_platform/sysdump/unisoc_sysdump.h>
 
 /* Registers definitions for ADI controller */
 #define REG_ADI_CTRL0			0x4
@@ -47,6 +50,7 @@
 #define RD_ADDR_MASK			GENMASK(30, 16)
 
 /* Bits definitions for register REG_ADI_ARM_FIFO_STS */
+#define BIT_ARM_WR_FREQ			BIT(31)
 #define BIT_FIFO_FULL			BIT(11)
 #define BIT_FIFO_EMPTY			BIT(10)
 
@@ -77,6 +81,7 @@
 
 #define ADI_FIFO_DRAIN_TIMEOUT		1000
 #define ADI_READ_TIMEOUT		2000
+#define ADI_WRITE_TIMEOUT		2000
 
 /*
  * Read back address from REG_ADI_RD_DATA bit[30:16] which maps to:
@@ -106,9 +111,35 @@
 #define PMIC_MODULE_EN			0xc08
 #define PMIC_CLK_EN			0xc18
 #define PMIC_WDG_BASE			0x80
+#define SC2730_MODULE_EN		0x1808
+#define SC2730_CLK_EN			0x1810
+#define SC2730_WDG_BASE			0x40
+#define SC2730_RST_STATUS		0x1bac
+#define SC2720_RST_STATUS		0xe24
+#define SC2720_MODULE_EN		0xc08
+#define SC2720_CLK_EN			0xc10
+#define SC2720_WDG_BASE			0x40
+#define UMP9620_RST_STATUS		0x23ac
+#define UMP9620_SWRST_CTRL0             0x23f8
+#define UMP9620_SOFT_RST_HW             0x2024
+#define SC2730_SWRST_CTRL0              0x1bf8
+#define SC2730_SOFT_RST_HW              0x1824
+#define SC2721_SWRST_CTRL0              0xf1c
+#define SC2721_SOFT_RST_HW              0xc24
+#define SC2721_WDG_BASE			0x40
+#define SC2721_RST_STATUS		0xed8
+#define SC2721_MODULE_EN		0xc08
+#define SC2721_CLK_EN			0xc10
+#define SC2720_SWRST_CTRL0              0xe68
+#define SC2720_SOFT_RST_HW              0xc24
+#define REG_RST_EN                      BIT(4)
+#define REG_SOFT_RST                    BIT(0)
 
 /* Definition of PMIC reset status register */
 #define HWRST_STATUS_SECURITY		0x02
+#define HWRST_STATUS_SECBOOT		0x03
+#define HWRST_STATUS_SML_PANIC          0x04
+#define HWRST_STATUS_BOOTLOADER_PANIC   0x10
 #define HWRST_STATUS_RECOVERY		0x20
 #define HWRST_STATUS_NORMAL		0x40
 #define HWRST_STATUS_ALARM		0x50
@@ -120,6 +151,7 @@
 #define HWRST_STATUS_AUTODLOADER	0xa0
 #define HWRST_STATUS_IQMODE		0xb0
 #define HWRST_STATUS_SPRDISK		0xc0
+#define HWRST_STATUS_SILENT             0xd0
 #define HWRST_STATUS_FACTORYTEST	0xe0
 #define HWRST_STATUS_WATCHDOG		0xf0
 
@@ -127,21 +159,32 @@
 #define WDG_LOAD_VAL			((50 * 32768) / 1000)
 #define WDG_LOAD_MASK			GENMASK(15, 0)
 #define WDG_UNLOCK_KEY			0xe551
+#define SPRD_PRINT_BUF_LEN              10240
 
-struct sprd_adi_wdg {
-	u32 base;
-	u32 rst_sts;
-	u32 wdg_en;
-	u32 wdg_clk;
-};
+/*Adi single soft multi hard*/
+#define SPRD_ADI_MAGIC_LEN_MAX          5
+
+#define ADI_printf(m, x...)			\
+	do {                                              \
+		if (!m)                                   \
+			pr_debug(x);                      \
+		else if (seq_buf_printf(m, x)) {         \
+			seq_buf_clear(m);                 \
+			seq_buf_printf(m, x);             \
+		}                                         \
+} while (0)
 
 struct sprd_adi_data {
 	u32 slave_offset;
 	u32 slave_addr_size;
+	int (*write_wait)(void __iomem *adi_base);
 	int (*read_check)(u32 val, u32 reg);
-	int (*restart)(struct notifier_block *this,
-		       unsigned long mode, void *cmd);
-	void (*wdg_rst)(void *p);
+	u32 rst_sts;
+	u32 swrst_base;
+	u32 softrst_base;
+	u32 wdg_base;
+	u32 wdg_en;
+	u32 wdg_clk;
 };
 
 struct sprd_adi {
@@ -154,6 +197,32 @@ struct sprd_adi {
 	struct notifier_block	restart_handler;
 	const struct sprd_adi_data *data;
 };
+
+static int securefuse = 0;
+
+static char *sprd_adi_buf;
+static struct seq_buf *sprd_adi_seq_buf;
+static char panic_reason[1024] = {0};
+static int adi_panic_event(struct notifier_block *self, unsigned long val, void
+			   *reason)
+{
+	if (reason != NULL)
+		memcpy(panic_reason, reason, strlen(reason));
+
+	return 0;
+}
+
+static struct notifier_block adi_panic_event_nb = {
+	.notifier_call  = adi_panic_event,
+	.priority       = INT_MAX,
+};
+
+static int adi_get_panic_reason_init(void)
+{
+	atomic_notifier_chain_register(&panic_notifier_list,
+				       &adi_panic_event_nb);
+	return 0;
+}
 
 static int sprd_adi_check_addr(struct sprd_adi *sadi, u32 reg)
 {
@@ -181,7 +250,7 @@ static int sprd_adi_drain_fifo(struct sprd_adi *sadi)
 	} while (--timeout);
 
 	if (timeout == 0) {
-		dev_err(sadi->dev, "drain write fifo timeout\n");
+		ADI_printf(sprd_adi_seq_buf, "ADI drain write fifo timeout\n");
 		return -EBUSY;
 	}
 
@@ -202,6 +271,26 @@ static int sprd_adi_read_check(u32 val, u32 addr)
 	if (rd_addr != addr) {
 		pr_err("ADI read error, addr = 0x%x, val = 0x%x\n", addr, val);
 		return -EIO;
+	}
+
+	return 0;
+}
+
+static int sprd_adi_write_wait(void __iomem *adi_base)
+{
+	int write_timeout = ADI_WRITE_TIMEOUT;
+	u32 val;
+
+	do {
+		val = readl_relaxed(adi_base + REG_ADI_ARM_FIFO_STS);
+		if (!(val & BIT_ARM_WR_FREQ))
+			break;
+		cpu_relax();
+	} while (--write_timeout);
+
+	if (write_timeout == 0) {
+		ADI_printf(sprd_adi_seq_buf, "ADI write fail\n");
+		return -EBUSY;
 	}
 
 	return 0;
@@ -259,7 +348,7 @@ static int sprd_adi_read(struct sprd_adi *sadi, u32 reg, u32 *read_val)
 	} while (--read_timeout);
 
 	if (read_timeout == 0) {
-		dev_err(sadi->dev, "ADI read timeout\n");
+		ADI_printf(sprd_adi_seq_buf, "ADI read timeout\n");
 		ret = -EBUSY;
 		goto out;
 	}
@@ -323,9 +412,13 @@ static int sprd_adi_write(struct sprd_adi *sadi, u32 reg, u32 val)
 	} while (--timeout);
 
 	if (timeout == 0) {
-		dev_err(sadi->dev, "write fifo is full\n");
+		ADI_printf(sprd_adi_seq_buf, "ADI write fifo is full\n");
 		ret = -EBUSY;
+		goto out;
 	}
+
+	if (sadi->data->write_wait)
+		ret = sadi->data->write_wait(sadi->base);
 
 out:
 	if (sadi->hwlock)
@@ -358,29 +451,22 @@ static int sprd_adi_transfer_one(struct spi_controller *ctlr,
 	return ret;
 }
 
-static void sprd_adi_set_wdt_rst_mode(void *p)
-{
-#if IS_ENABLED(CONFIG_SPRD_WATCHDOG)
-	u32 val;
-	struct sprd_adi *sadi = (struct sprd_adi *)p;
-
-	/* Init watchdog reset mode */
-	sprd_adi_read(sadi, PMIC_RST_STATUS, &val);
-	val |= HWRST_STATUS_WATCHDOG;
-	sprd_adi_write(sadi, PMIC_RST_STATUS, val);
-#endif
-}
-
-static int sprd_adi_restart(struct notifier_block *this, unsigned long mode,
-				  void *cmd, struct sprd_adi_wdg *wdg)
+static int sprd_adi_restart_handler(struct notifier_block *this, unsigned long mode,
+				  void *cmd)
 {
 	struct sprd_adi *sadi = container_of(this, struct sprd_adi,
 					     restart_handler);
-	u32 val, reboot_mode = 0;
+	u32 val = 0, reboot_mode = 0, sml_mode;
 
-	if (!cmd)
-		reboot_mode = HWRST_STATUS_NORMAL;
-	else if (!strncmp(cmd, "recovery", 8))
+	if (!cmd) {
+		if (strlen(panic_reason)) {
+			if (strstr(panic_reason, "tospanic"))
+				reboot_mode = HWRST_STATUS_SECURITY;
+			else
+				reboot_mode = HWRST_STATUS_PANIC;
+		} else
+			reboot_mode = HWRST_STATUS_NORMAL;
+	} else if (!strncmp(cmd, "recovery", 8))
 		reboot_mode = HWRST_STATUS_RECOVERY;
 	else if (!strncmp(cmd, "alarm", 5))
 		reboot_mode = HWRST_STATUS_ALARM;
@@ -394,54 +480,44 @@ static int sprd_adi_restart(struct notifier_block *this, unsigned long mode,
 		reboot_mode = HWRST_STATUS_SPECIAL;
 	else if (!strncmp(cmd, "cftreboot", 9))
 		reboot_mode = HWRST_STATUS_CFTREBOOT;
-	else if (!strncmp(cmd, "autodloader", 11))
-		reboot_mode = HWRST_STATUS_AUTODLOADER;
-	else if (!strncmp(cmd, "iqmode", 6))
+	else if (!strncmp(cmd, "autodloader", 11) || !strncmp(cmd, "edl", 3)) {
+		if (securefuse)
+			pr_err("Warning: %s is not allowed in fused phone!!\n", cmd);
+		else
+			reboot_mode = HWRST_STATUS_AUTODLOADER;
+	} else if (!strncmp(cmd, "iqmode", 6))
 		reboot_mode = HWRST_STATUS_IQMODE;
 	else if (!strncmp(cmd, "sprdisk", 7))
 		reboot_mode = HWRST_STATUS_SPRDISK;
 	else if (!strncmp(cmd, "tospanic", 8))
 		reboot_mode = HWRST_STATUS_SECURITY;
+	else if (!strncmp(cmd, "dm-verity", 9))
+		reboot_mode = HWRST_STATUS_SECBOOT;
 	else if (!strncmp(cmd, "factorytest", 11))
 		reboot_mode = HWRST_STATUS_FACTORYTEST;
+	else if (!strncmp(cmd, "silent", 6))
+		reboot_mode = HWRST_STATUS_SILENT;
 	else
 		reboot_mode = HWRST_STATUS_NORMAL;
 
 	/* Record the reboot mode */
-	sprd_adi_read(sadi, wdg->rst_sts, &val);
-	val &= ~HWRST_STATUS_WATCHDOG;
-	val |= reboot_mode;
-	sprd_adi_write(sadi, wdg->rst_sts, val);
+	sprd_adi_read(sadi, sadi->data->rst_sts, &val);
+	sml_mode = val & 0xFF;
+	if (sml_mode != HWRST_STATUS_SML_PANIC && sml_mode != HWRST_STATUS_SECURITY) {
+		val &= ~0xFF;
+		val |= reboot_mode;
+		sprd_adi_write(sadi, sadi->data->rst_sts, val);
+	}
 
-	/* Enable the interface clock of the watchdog */
-	sprd_adi_read(sadi, wdg->wdg_en, &val);
-	val |= BIT_WDG_EN;
-	sprd_adi_write(sadi, wdg->wdg_en, val);
+	/*enable register reboot mode*/
+	sprd_adi_read(sadi, sadi->data->swrst_base, &val);
+	val |= REG_RST_EN;
+	sprd_adi_write(sadi, sadi->data->swrst_base, val);
 
-	/* Enable the work clock of the watchdog */
-	sprd_adi_read(sadi, wdg->wdg_clk, &val);
-	val |= BIT_WDG_EN;
-	sprd_adi_write(sadi, wdg->wdg_clk, val);
-
-	/* Unlock the watchdog */
-	sprd_adi_write(sadi, wdg->base + REG_WDG_LOCK, WDG_UNLOCK_KEY);
-
-	sprd_adi_read(sadi, wdg->base + REG_WDG_CTRL, &val);
-	val |= BIT_WDG_NEW;
-	sprd_adi_write(sadi, wdg->base + REG_WDG_CTRL, val);
-
-	/* Load the watchdog timeout value, 50ms is always enough. */
-	sprd_adi_write(sadi, wdg->base + REG_WDG_LOAD_HIGH, 0);
-	sprd_adi_write(sadi, wdg->base + REG_WDG_LOAD_LOW,
-		       WDG_LOAD_VAL & WDG_LOAD_MASK);
-
-	/* Start the watchdog to reset system */
-	sprd_adi_read(sadi, wdg->base + REG_WDG_CTRL, &val);
-	val |= BIT_WDG_RUN | BIT_WDG_RST;
-	sprd_adi_write(sadi, wdg->base + REG_WDG_CTRL, val);
-
-	/* Lock the watchdog */
-	sprd_adi_write(sadi, wdg->base + REG_WDG_LOCK, ~WDG_UNLOCK_KEY);
+	/*enable soft reboot mode */
+	sprd_adi_read(sadi, sadi->data->softrst_base, &val);
+	val |= REG_SOFT_RST;
+	sprd_adi_write(sadi, sadi->data->softrst_base, val);
 
 	mdelay(1000);
 
@@ -449,17 +525,32 @@ static int sprd_adi_restart(struct notifier_block *this, unsigned long mode,
 	return NOTIFY_DONE;
 }
 
-static int sprd_adi_restart_sc9860(struct notifier_block *this,
-					   unsigned long mode, void *cmd)
+static void sprd_adi_power_ssmh(char *adi_supply)
 {
-	struct sprd_adi_wdg wdg = {
-		.base = PMIC_WDG_BASE,
-		.rst_sts = PMIC_RST_STATUS,
-		.wdg_en = PMIC_MODULE_EN,
-		.wdg_clk = PMIC_CLK_EN,
-	};
+	struct device_node *cmdline_node;
+	const char *cmd_line, *adi_type;
+	char adi_value[SPRD_ADI_MAGIC_LEN_MAX] = "";
+	int ret;
 
-	return sprd_adi_restart(this, mode, cmd, &wdg);
+	cmdline_node = of_find_node_by_path("/chosen");
+	ret = of_property_read_string(cmdline_node, "bootargs", &cmd_line);
+
+	if (ret) {
+		pr_err("can't parse bootargs property\n");
+		return;
+	}
+
+	adi_type = strstr(cmd_line, "power.from.extern=");
+	if (!adi_type) {
+		pr_err("can't find power.from.extern\n");
+		return;
+	}
+
+	sscanf(adi_type, "power.from.extern=%s\n", adi_value);
+	if (!adi_value[0])
+		return;
+
+	strcat(adi_supply, adi_value);
 }
 
 static void sprd_adi_hw_init(struct sprd_adi *sadi)
@@ -468,6 +559,7 @@ static void sprd_adi_hw_init(struct sprd_adi *sadi)
 	int i, size, chn_cnt;
 	const __be32 *list;
 	u32 tmp;
+	char adi_supply[25] = "sprd,hw-channels";
 
 	/* Set all channels as default priority */
 	writel_relaxed(0, sadi->base + REG_ADI_CHN_PRIL);
@@ -479,7 +571,10 @@ static void sprd_adi_hw_init(struct sprd_adi *sadi)
 	writel_relaxed(tmp, sadi->base + REG_ADI_GSSI_CFG0);
 
 	/* Set hardware channels setting */
-	list = of_get_property(np, "sprd,hw-channels", &size);
+	sprd_adi_power_ssmh(adi_supply);
+	dev_info(sadi->dev, "adi supply is %s\n", adi_supply);
+
+	list = of_get_property(np, adi_supply, &size);
 	if (!list || !size) {
 		dev_info(sadi->dev, "no hw channels setting in node\n");
 		return;
@@ -510,6 +605,18 @@ static void sprd_adi_hw_init(struct sprd_adi *sadi)
 	}
 }
 
+const char *hwinfo_get_prop(const char *prop_name)
+{
+	static struct device_node *node = NULL;
+	const char *prop;
+	int rc = -1;
+	if (!node)
+		node = of_find_node_by_path("/firmware/android");
+	if (node)
+		rc = of_property_read_string(node, prop_name, &prop);
+	return rc ? "error" : prop;
+}
+
 static int sprd_adi_probe(struct platform_device *pdev)
 {
 	struct device_node *np = pdev->dev.of_node;
@@ -520,6 +627,8 @@ static int sprd_adi_probe(struct platform_device *pdev)
 	u16 num_chipselect;
 	int ret;
 
+	if (!strcmp(hwinfo_get_prop("hwinfo.securefuse"), "true"))
+		securefuse = 1;
 	if (!np) {
 		dev_err(&pdev->dev, "can not find the adi bus node\n");
 		return -ENODEV;
@@ -574,9 +683,7 @@ static int sprd_adi_probe(struct platform_device *pdev)
 	}
 
 	sprd_adi_hw_init(sadi);
-
-	if (sadi->data->wdg_rst)
-		sadi->data->wdg_rst(sadi);
+	adi_get_panic_reason_init();
 
 	ctlr->dev.of_node = pdev->dev.of_node;
 	ctlr->bus_num = pdev->id;
@@ -591,18 +698,44 @@ static int sprd_adi_probe(struct platform_device *pdev)
 		goto put_ctlr;
 	}
 
-	if (sadi->data->restart) {
-		sadi->restart_handler.notifier_call = sadi->data->restart;
-		sadi->restart_handler.priority = 128;
-		ret = register_restart_handler(&sadi->restart_handler);
-		if (ret) {
-			dev_err(&pdev->dev, "can not register restart handler\n");
-			goto put_ctlr;
-		}
+	sprd_adi_buf = kzalloc(SPRD_PRINT_BUF_LEN, GFP_KERNEL);
+	if (!sprd_adi_buf) {
+		ret = -ENOMEM;
+		goto put_ctlr;
+	}
+
+	sprd_adi_seq_buf = kzalloc(sizeof(*sprd_adi_seq_buf), GFP_KERNEL);
+	if (!sprd_adi_seq_buf) {
+		ret = -ENOMEM;
+		goto free_adi_buf;
+	}
+
+	ret = minidump_save_extend_information("spi_sprd_adi",
+					__pa((unsigned long)(sprd_adi_buf)),
+					 __pa((unsigned long)(sprd_adi_buf) +
+					      SPRD_PRINT_BUF_LEN));
+
+	if (ret) {
+		dev_err(&pdev->dev, "alloc adi fail\n");
+		goto free_seq_buf;
+	}
+
+	seq_buf_init(sprd_adi_seq_buf, sprd_adi_buf, SPRD_PRINT_BUF_LEN);
+
+	sadi->restart_handler.notifier_call = sprd_adi_restart_handler;
+	sadi->restart_handler.priority = 130;
+	ret = register_restart_handler(&sadi->restart_handler);
+	if (ret) {
+		dev_err(&pdev->dev, "can not register restart handler\n");
+		goto put_ctlr;
 	}
 
 	return 0;
 
+free_seq_buf:
+	kfree(sprd_adi_seq_buf);
+free_adi_buf:
+	kfree(sprd_adi_buf);
 put_ctlr:
 	spi_controller_put(ctlr);
 	return ret;
@@ -621,20 +754,52 @@ static struct sprd_adi_data sc9860_data = {
 	.slave_offset = ADI_10BIT_SLAVE_OFFSET,
 	.slave_addr_size = ADI_10BIT_SLAVE_ADDR_SIZE,
 	.read_check = sprd_adi_read_check_r2,
-	.restart = sprd_adi_restart_sc9860,
-	.wdg_rst = sprd_adi_set_wdt_rst_mode,
+	.rst_sts = PMIC_RST_STATUS,
+	.wdg_base = PMIC_WDG_BASE,
+	.wdg_en = PMIC_MODULE_EN,
+	.wdg_clk = PMIC_CLK_EN,
 };
 
 static struct sprd_adi_data sc9863_data = {
 	.slave_offset = ADI_12BIT_SLAVE_OFFSET,
 	.slave_addr_size = ADI_12BIT_SLAVE_ADDR_SIZE,
 	.read_check = sprd_adi_read_check_r3,
+	.wdg_base = SC2721_WDG_BASE,
+	.rst_sts = SC2721_RST_STATUS,
+	.wdg_en = SC2721_MODULE_EN,
+	.wdg_clk = SC2721_CLK_EN,
+	.swrst_base = SC2721_SWRST_CTRL0,
+	.softrst_base = SC2721_SOFT_RST_HW,
+};
+
+static struct sprd_adi_data pike2_data = {
+	.slave_offset = ADI_12BIT_SLAVE_OFFSET,
+	.slave_addr_size = ADI_12BIT_SLAVE_ADDR_SIZE,
+	.read_check = sprd_adi_read_check_r3,
+	.wdg_base = SC2720_WDG_BASE,
+	.rst_sts = SC2720_RST_STATUS,
+	.wdg_en = SC2720_MODULE_EN,
+	.wdg_clk = SC2720_CLK_EN,
+	.swrst_base = SC2720_SWRST_CTRL0,
+	.softrst_base = SC2720_SOFT_RST_HW,
 };
 
 static struct sprd_adi_data ums512_data = {
 	.slave_offset = ADI_15BIT_SLAVE_OFFSET,
 	.slave_addr_size = ADI_15BIT_SLAVE_ADDR_SIZE,
 	.read_check = sprd_adi_read_check_r3,
+	.rst_sts = SC2730_RST_STATUS,
+	.swrst_base = SC2730_SWRST_CTRL0,
+	.softrst_base = SC2730_SOFT_RST_HW,
+};
+
+static struct sprd_adi_data ums9620_data = {
+	.write_wait = sprd_adi_write_wait,
+	.slave_offset = ADI_15BIT_SLAVE_OFFSET,
+	.slave_addr_size = ADI_15BIT_SLAVE_ADDR_SIZE,
+	.rst_sts = UMP9620_RST_STATUS,
+	.swrst_base = UMP9620_SWRST_CTRL0,
+	.softrst_base = UMP9620_SOFT_RST_HW,
 };
 
 static const struct of_device_id sprd_adi_of_match[] = {
@@ -647,8 +812,16 @@ static const struct of_device_id sprd_adi_of_match[] = {
 		.data = &sc9863_data,
 	},
 	{
+		.compatible = "sprd,pike2-adi",
+		.data = &pike2_data,
+	},
+	{
 		.compatible = "sprd,ums512-adi",
 		.data = &ums512_data,
+	},
+	{
+		.compatible = "sprd,ums9620-adi",
+		.data = &ums9620_data,
 	},
 	{ },
 };

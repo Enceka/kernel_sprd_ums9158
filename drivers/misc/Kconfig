@@ -460,6 +460,14 @@ config MISC_RTSX
 	tristate
 	default MISC_RTSX_PCI || MISC_RTSX_USB
 
+config SPRD_UID
+	tristate "Spreadtrum Uid Support"
+	depends on ARCH_SPRD || COMPILE_TEST
+	depends on HAS_IOMEM
+	help
+	  provoid a driver to get chip uid.
+	  UID based statistics exported to /sys/class/misc/sprd_uid/uid.
+
 config UID_SYS_STATS
 	bool "Per-UID statistics"
 	depends on PROFILING && TASK_XACCT && TASK_IO_ACCOUNTING
@@ -489,6 +497,11 @@ config OPEN_DICE
 	  and sealing.
 
 	  If unsure, say N.
+
+config SPRD_SOCID
+	tristate "Spreadtrum soc id Support"
+	help
+	  provoid a driver to get soc id.
 
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
