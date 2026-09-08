@@ -65,7 +65,7 @@ CONFIG_SETEND_EMULATION=y
 CONFIG_ARM64_MPAM=y
 CONFIG_RANDOMIZE_BASE=y
 # CONFIG_RANDOMIZE_MODULE_REGION_FULL is not set
-CONFIG_CMDLINE="stack_depot_disable=on kasan.stacktrace=off kvm-arm.mode=protected cgroup_disable=pressure loglevel=8"
+CONFIG_CMDLINE="stack_depot_disable=on kasan.stacktrace=off kvm-arm.mode=protected cgroup_disable=pressure loglevel=8 panic=5 softlockup_panic=1 hung_task_panic=1"
 CONFIG_CMDLINE_EXTEND=y
 # CONFIG_DMI is not set
 CONFIG_HIBERNATION=y
@@ -883,7 +883,6 @@ CONFIG_KFENCE_SAMPLE_INTERVAL=500
 CONFIG_KFENCE_NUM_OBJECTS=63
 CONFIG_KFENCE_STATIC_KEYS=y
 CONFIG_PANIC_ON_OOPS=y
-CONFIG_PANIC_TIMEOUT=-1
 CONFIG_SOFTLOCKUP_DETECTOR=y
 CONFIG_WQ_WATCHDOG=y
 CONFIG_SCHEDSTATS=y
@@ -911,3 +910,9 @@ CONFIG_SPRD_UMS9621_CLK=y
 # every *-supply consumer, including the eMMC host, defers forever (-517) ---
 CONFIG_REGULATOR_UMP9620=y
 CONFIG_REGULATOR_UMP9621=y
+# --- e5: backlight PWM (stock loads pwm_sprd; without it the panel stays black) ---
+CONFIG_PWM_SPRD=y
+# --- e5: leave a trace on hang: reboot 5s after panic, warm reset keeps ramoops ---
+CONFIG_PANIC_TIMEOUT=5
+CONFIG_BOOTPARAM_SOFTLOCKUP_PANIC=y
+CONFIG_BOOTPARAM_HUNG_TASK_PANIC=y
