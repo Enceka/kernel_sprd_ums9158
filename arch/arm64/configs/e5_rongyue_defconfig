@@ -908,8 +908,8 @@ CONFIG_SPRD_UMS9621_CLK=y
 # CONFIG_KASAN is not set
 # --- e5: PMIC regulators (device loads ump9620/ump9621_regulator; without them
 # every *-supply consumer, including the eMMC host, defers forever (-517) ---
-CONFIG_REGULATOR_UMP9620=y
-CONFIG_REGULATOR_UMP9621=y
+CONFIG_REGULATOR_UMP9620=m
+CONFIG_REGULATOR_UMP9621=m
 # --- e5: backlight PWM (stock loads pwm_sprd; without it the panel stays black) ---
 CONFIG_PWM_SPRD=y
 # --- e5: leave a trace on hang: reboot 5s after panic, warm reset keeps ramoops ---
