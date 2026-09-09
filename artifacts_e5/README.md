@@ -3,6 +3,13 @@
 This directory documents the rebuilt kernel artifacts for the Rongyue E5
 (Unisoc UMS9621 / qogirn6lite / product ums9158_1h10_cmcc, Android 13).
 
+**2026-09-09**: device-side forensics found zero evidence the rebuilt kernel
+completed a boot that day (all archived ylog sessions were stock 5.15.119),
+plus a new UART-free log-capture path and two capacity risks (vendor_boot AVB
+footer headroom, boot.img kernel-region headroom). See
+`diagnostics_2026-09-09.md` before trusting the "fixed" framing in the
+vendor_boot section below - it documents attempts, not a confirmed fix.
+
 ## Build inputs
 
 - Base kernel: Google android13-5.15 (5.15.211 GKI, commit 21bbfb609)
