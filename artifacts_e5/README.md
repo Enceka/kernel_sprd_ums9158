@@ -19,6 +19,8 @@ This directory documents the rebuilt kernel artifacts for the Rongyue E5
 ./make_e5_dtb.sh           # merge base+overlay -> e5-rongyue.dtb
 ./stage_vendor_modules.sh  # collect .ko -> vendor_modules_e5/
 ./repack_boot_e5.sh        # swap kernel into boot image -> boot-e5.img
+python3 artifacts_e5/vendor_boot/build_vendor_boot_e5.py
+                           # repack vendor_boot with our own first-stage modules
 ```
 
 ## Key facts learned from the device images
@@ -35,6 +37,29 @@ This directory documents the rebuilt kernel artifacts for the Rongyue E5
 - Device live FDT: model="Unisoc UMS9621-base Board", compatible
   "sprd,ums512-base","sprd,ums9621", sc-id "ums9621 1000 1000";
   bootargs select lcd_name=lcd_st7365p_mipi_hdp (480x320).
+
+## vendor_boot repack (first-stage kernel modules)
+
+The rebuilt kernel (5.15.211) cannot load the stock first-stage modules — they
+are built for 5.15.119 and every one of them fails with
+`disagrees about version of symbol module_layout`. Without them no block device
+ever appears and init reboots via `Failed to mount required partitions early`,
+so the vendor ramdisk has to be repacked with our own modules.
+
+Two non-obvious traps, both of which produce a silent reboot with no log:
+
+- the AVB footer magic is **`AVBf`** (not `AVB0`) and it lives in the last 64
+  bytes of the partition; after changing the ramdisk size the vbmeta blob must
+  be moved *and* the footer repointed, otherwise the bootloader reports
+  `invalid vbmeta header` / `ERROR_INVALID_METADATA`;
+- the stock `modules.load` is a **hand-tuned 83-entry subset** of the 158 .ko
+  files (ADI/PMIC/clock layers first, regulators at position 18). An
+  alphabetical list puts `ump9620-regulator.ko` first, where
+  `dev_get_regmap()` returns NULL and the driver dereferences it — killing
+  first-stage init long before pstore is up.
+
+Full layout tables, the stock load order and how to read the bootloader log:
+`artifacts_e5/vendor_boot/README.md`.
 
 ## Known deltas vs device FDT (source-fidelity, non-blocking for boot)
 
