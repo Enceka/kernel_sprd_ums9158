@@ -281,6 +281,17 @@ if foots:
     vbm = b[vbm_off:vbm_off + vbm_size]
     for off in range(vbm_off, vbm_off + vbm_size):
         img[off] = 0
+    # new_end must land before the footer (last 64 bytes of the partition) -
+    # if our module set is large enough to push the payload past that point,
+    # placing vbmeta here would silently overwrite the footer (or run past
+    # the end of the partition), producing an image that still "writes"
+    # successfully but fails AVB with ERROR_INVALID_METADATA / slot_data[0]=0x0
+    # on every other boot depending on what garbage ends up in the footer.
+    assert new_end + vbm_size <= foff, (
+        'new payload (0x%x) + vbmeta (0x%x bytes) overruns the AVB footer at '
+        '0x%x - vendor_boot payload has grown %d bytes too large for this '
+        'partition; trim the module set or grow the partition' %
+        (new_end, vbm_size, foff, new_end + vbm_size - foff))
     place(new_end, vbm)
     nf = bytearray(b[foff:foff + 64])
     struct.pack_into('>QQQ', nf, 12, new_end, new_end, vbm_size)
