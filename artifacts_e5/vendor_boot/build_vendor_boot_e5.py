@@ -58,7 +58,19 @@ def current_modules():
 MODS = current_modules()
 if not MODS:
     raise SystemExit('no modules in %s - build the kernel first' % BUILD)
-print('modules from current build: %d' % len(MODS))
+
+# Out-of-tree modules we build ourselves, absent from out_e5/modules.order.
+# mali_kbase is the Mali GPU DDK (gpu-mali/): /vendor/lib/modules only carries
+# the 5.15.119 build, which cannot load here, and without it surfaceflinger
+# aborts in GLESRenderEngine and the screen stays black.
+EXTRA_MODS = {}
+for _p in (os.path.normpath(os.path.join(HERE, '..', '..',
+                                         'gpu-mali', 'mali', 'mali_kbase.ko')),):
+    if os.path.exists(_p):
+        EXTRA_MODS[os.path.basename(_p)] = _p
+MODS.update(EXTRA_MODS)
+print('modules from current build: %d tree + %d out-of-tree'
+      % (len(MODS) - len(EXTRA_MODS), len(EXTRA_MODS)))
 stale = [os.path.basename(p) for p in glob.glob(BUILD + '/**/*.ko', recursive=True)]
 stale = [x for x in stale if x not in MODS]
 if stale:
@@ -169,6 +181,16 @@ extra = [n for n in MODS if n not in seen]
 print('first-stage load list: %d modules (stock asks for %d)' % (len(order), len(stock_list)))
 print('  stock-only, built into our kernel (=y), skipped: %d' % len(skipped_builtin))
 print('  ours but never first-stage on stock, dropped: %d %s' % (len(extra), extra[:8]))
+
+# mali_kbase has no entry in the stock list - the stock kernel loads it from
+# /vendor/lib/modules during second stage. Our build has to come from this
+# ramdisk, which is the only place we control without touching vendor.
+for n in ('mali_kbase.ko',):
+    if n in MODS and n not in seen:
+        seen.add(n)
+        order.append(n)
+        print('  appended out-of-tree: %s' % n)
+
 load = (''.join(n + '\n' for n in order)).encode()
 meta['modules.load'] = load
 meta['modules.load.recovery'] = load
