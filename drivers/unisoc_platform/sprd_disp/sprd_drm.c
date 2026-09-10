@@ -20,6 +20,7 @@
 #include <drm/drm_of.h>
 #include <drm/drm_probe_helper.h>
 #include <drm/drm_vblank.h>
+#include <uapi/linux/sched/types.h>
 
 #include "sprd_drm.h"
 #include "sprd_drm_gsp.h"
@@ -98,6 +99,8 @@ int sprd_atomic_wait_for_fences(struct drm_device *dev,
 {
 	struct drm_plane *plane;
 	struct drm_plane_state *new_plane_state;
+	int len = 50;
+	char buf[50];
 	int i, ret;
 
 	for_each_new_plane_in_state(state, plane, new_plane_state, i) {
@@ -115,7 +118,12 @@ int sprd_atomic_wait_for_fences(struct drm_device *dev,
 				pre_swap,
 				msecs_to_jiffies(SPRD_FENCE_WAIT_TIMEOUT));
 		if (ret == 0) {
-			DRM_ERROR("wait fence timed out, index:%d,\n", i);
+			snprintf(buf, len, "%s-%s%llu-%lld",
+				new_plane_state->fence->ops->get_driver_name(new_plane_state->fence),
+				new_plane_state->fence->ops->get_timeline_name(new_plane_state->fence),
+				new_plane_state->fence->context,
+				new_plane_state->fence->seqno);
+			DRM_ERROR("wait fence timed out, index:%d, name:%s\n", i, buf);
 			return -EBUSY;
 		} else if (ret < 0) {
 			DRM_ERROR("wait fence failed, index:%d, ret:%d.\n",
@@ -125,6 +133,54 @@ int sprd_atomic_wait_for_fences(struct drm_device *dev,
 
 		dma_fence_put(new_plane_state->fence);
 		new_plane_state->fence = NULL;
+	}
+
+	return 0;
+}
+
+static int sprd_atomic_wait_last_cleanup_done(struct drm_device *drm,
+						struct drm_atomic_state *state)
+{
+	int i, ret;
+	struct drm_connector *connector;
+	struct drm_connector_state *old_conn_state;
+	struct drm_crtc *crtc;
+	struct drm_crtc_state *old_crtc_state;
+	struct drm_plane *plane;
+	struct drm_plane_state *old_plane_state;
+	struct drm_crtc_commit *commit;
+
+	for_each_old_crtc_in_state(state, crtc, old_crtc_state, i) {
+		commit = old_crtc_state->commit;
+
+		if (!commit)
+			continue;
+
+		ret = wait_for_completion_interruptible(&commit->cleanup_done);
+		if (ret)
+			return ret;
+	}
+
+	for_each_old_connector_in_state(state, connector, old_conn_state, i) {
+		commit = old_conn_state->commit;
+
+		if (!commit)
+			continue;
+
+		ret = wait_for_completion_interruptible(&commit->cleanup_done);
+		if (ret)
+			return ret;
+	}
+
+	for_each_old_plane_in_state(state, plane, old_plane_state, i) {
+		commit = old_plane_state->commit;
+
+		if (!commit)
+			continue;
+
+		ret = wait_for_completion_interruptible(&commit->cleanup_done);
+		if (ret)
+			return ret;
 	}
 
 	return 0;
@@ -154,48 +210,78 @@ static void sprd_commit_tail(struct drm_atomic_state *old_state)
 	drm_atomic_state_put(old_state);
 }
 
-static void sprd_commit_work(struct work_struct *work)
+static void sprd_commit_work(struct kthread_work *work)
 {
-	struct drm_atomic_state *state = container_of(work,
-						      struct drm_atomic_state,
-						      commit_work);
-	sprd_commit_tail(state);
+	struct sprd_drm *drm =
+                        container_of(work, struct sprd_drm, post_work);
+	struct list_head saved_list;
+	struct sprd_commit_list *old_commits, *next;
+
+	mutex_lock(&drm->post_lock);
+	memcpy(&saved_list, &drm->post_list, sizeof(saved_list));
+	list_replace_init(&drm->post_list, &saved_list);
+	mutex_unlock(&drm->post_lock);
+
+	list_for_each_entry_safe(old_commits, next, &saved_list, head) {
+		sprd_commit_tail(old_commits->state);
+		kfree(old_commits);
+	}
 }
 
 int sprd_atomic_helper_commit(struct drm_device *dev,
 			struct drm_atomic_state *state, bool nonblock)
 {
 	int ret;
-	/*
-	 * FIXME:
-	 * In some extreme scenes, there will be FPS drops or screen freeze,
-	 * it's may be due to poor gpu capabilities or rendering heavy loads.
-	 * If nonblock flag is true, userspace is not allowed to get ahead of the
-	 * previous commit with nonblocking ones, it maybe cause drm atomic_commit
-	 * pipeline occur performance issues.
-	 *
-	 * -EBUSY when userspace schedules nonblocking commits too fast, that's
-	 * not the case for us, maybe caused by FPS drops or screen freezes.
-	 */
+	struct sprd_drm *sprd;
+
 	ret = drm_atomic_helper_setup_commit(state, false);
 	if (ret)
 		return ret;
-
-	INIT_WORK(&state->commit_work, sprd_commit_work);
 
 	ret = drm_atomic_helper_prepare_planes(dev, state);
 	if (ret)
 		return ret;
 
-	ret = drm_atomic_helper_swap_state(state, true);
+	/*
+	 * FIXME:
+	 * Because of system heave loads or other performance issues, the procedure which after
+	 * swap state the most recent commit may running ahead of the last commit.
+	 * When the most recent commit finish drm atomic commit procedure, it will free last time's
+	 * commit state which stored as old state in the most recent commit's drm_atomic_state.
+	 * If last commit has not finished yet, calling on variable may causing stability problem.
+	 * So we add this restriction to force the most recent commit waiting for the last on clean
+	 * up done completed to avoid the problem declared above.
+	 */
+	ret = sprd_atomic_wait_last_cleanup_done(dev, state);
+	if (ret)
+		goto err;
+
+	sprd = dev->dev_private;
+	mutex_lock(&sprd->state_lock);
+	ret = drm_atomic_helper_swap_state(state, false);
+	mutex_unlock(&sprd->state_lock);
 	if (ret)
 		goto err;
 
 	drm_atomic_state_get(state);
-	if (nonblock)
-		queue_work(system_unbound_wq, &state->commit_work);
-	else
+	if (nonblock) {
+		mutex_lock(&sprd->post_lock);
+		sprd->commit = kzalloc(sizeof(struct sprd_commit_list), GFP_KERNEL);
+		if (!sprd->commit) {
+			ret = -ENOMEM;
+			DRM_ERROR("there is no memory for commit\n");
+			mutex_unlock(&sprd->post_lock);
+			goto err;
+		}
+		sprd->commit->state = state;
+		INIT_LIST_HEAD(&sprd->commit->head);
+		list_add_tail(&sprd->commit->head, &sprd->post_list);
+		mutex_unlock(&sprd->post_lock);
+		kthread_queue_work(&sprd->post_worker, &sprd->post_work);
+	}
+	else {
 		sprd_commit_tail(state);
+	}
 
 	return 0;
 
@@ -235,9 +321,9 @@ static const struct file_operations sprd_drm_fops = {
 	.open		= drm_open,
 	.release	= drm_release,
 	.unlocked_ioctl	= drm_ioctl,
-// #ifdef CONFIG_COMPAT
-// 	.compat_ioctl	= sprd_compat_ioctl,
-// #endif
+#ifdef CONFIG_COMPAT
+	.compat_ioctl	= sprd_compat_ioctl,
+#endif
 	.poll		= drm_poll,
 	.read		= drm_read,
 	.llseek		= no_llseek,
@@ -267,6 +353,7 @@ static int sprd_drm_bind(struct device *dev)
 {
 	struct drm_device *drm;
 	struct sprd_drm *sprd;
+	struct sched_param param = { .sched_priority = MAX_RT_PRIO - 1 };
 	int err;
 
 	DRM_INFO("%s()\n", __func__);
@@ -284,6 +371,7 @@ static int sprd_drm_bind(struct device *dev)
 	}
 
 	drm->dev_private = sprd;
+	sprd->drm = drm;
 
 	/* get the optional framebuffer memory resource */
 	err = of_reserved_mem_device_init_by_idx(drm->dev,
@@ -312,12 +400,22 @@ static int sprd_drm_bind(struct device *dev)
 	/* reset all the states of crtc/plane/encoder/connector */
 	drm_mode_config_reset(drm);
 
+	mutex_init(&sprd->state_lock);
+
 	/* init kms poll for handling hpd */
 	drm_kms_helper_poll_init(drm);
 
 	err = drm_dev_register(drm, 0);
 	if (err < 0)
 		goto err_kms_helper_poll_fini;
+
+	INIT_LIST_HEAD(&sprd->post_list);
+	mutex_init(&sprd->post_lock);
+	kthread_init_worker(&sprd->post_worker);
+	sprd->post_thread = kthread_run(kthread_worker_fn,
+			&sprd->post_worker, "sprd-drm");
+	sched_setscheduler(sprd->post_thread, SCHED_FIFO, &param);
+	kthread_init_work(&sprd->post_work, sprd_commit_work);
 
 	return 0;
 
@@ -343,9 +441,9 @@ static void sprd_drm_unbind(struct device *dev)
 
 	drm_kms_helper_poll_fini(drm);
 
-	drm_mode_config_cleanup(drm);
-
 	component_unbind_all(drm->dev, drm);
+
+	drm_mode_config_cleanup(drm);
 
 	of_reserved_mem_device_release(drm->dev);
 
@@ -430,21 +528,21 @@ static int sprd_drm_component_probe(struct device *dev,
 		}
 		of_node_put(port);
 	}
-	if (IS_ENABLED(CONFIG_UNISOC_GSP)) {
-		for (i = 0; ; i++) {
-			port = of_parse_phandle(dev->of_node, "gsp", i);
-			if (!port)
-				break;
 
-			if (!of_device_is_available(port->parent)) {
-				of_node_put(port);
-				continue;
-			}
-
-			component_match_add(dev, &match, compare_of, port);
+#ifdef CONFIG_UNISOC_GSP
+	for (i = 0; ; i++) {
+		port = of_parse_phandle(dev->of_node, "gsp", i);
+		if (!port)
+			break;
+		if (!of_device_is_available(port->parent)) {
 			of_node_put(port);
+			continue;
 		}
+		component_match_add(dev, &match, compare_of, port);
+		of_node_put(port);
 	}
+#endif
+
 	return component_master_add_with_match(dev, m_ops, match);
 }
 
@@ -491,7 +589,6 @@ static int sprd_drm_pm_suspend(struct device *dev)
 	struct drm_atomic_state *state;
 	struct sprd_drm *sprd;
 	struct drm_crtc *crtc;
-	struct drm_encoder *encoder;
 	static bool is_suspend;
 
 	if (!drm) {
@@ -501,25 +598,27 @@ static int sprd_drm_pm_suspend(struct device *dev)
 
 	DRM_INFO("%s()\n", __func__);
 
-	if (boot_mode_check("androidboot.mode=autotest")) {
+	if (boot_mode_check("sprdboot.mode=autotest")) {
 		if (is_suspend)
 			return 0;
 
 		drm_for_each_crtc(crtc, drm) {
-			if (!crtc->state->active) {
-				/* crtc force power down! */
-				sprd_dpu_atomic_disable_force(crtc);
+			if (crtc && !strcmp(crtc->name, "dispc0")) {
+				if (!crtc->state->active) {
+					/* crtc force power down! */
+					sprd_dpu_atomic_disable_force(crtc);
 
-				/* encoder force power down! */
-				drm_for_each_encoder(encoder, drm) {
-					sprd_dsi_encoder_disable_force(encoder);
+					/* encoder force power down! */
+					sprd_dsi_encoder_disable_force(crtc);
+
+					is_suspend = true; /* For BBAT deep sleep */
+					return 0;
 				}
-
-				is_suspend = true; /* For BBAT deep sleep */
-				return 0;
+				is_suspend = true; /* For BBAT display test */
+				pr_err("Only support %s  power down\n", crtc->name);
+				break;
 			}
 		}
-		is_suspend = true; /* For BBAT display test */
 	}
 
 	drm_kms_helper_poll_disable(drm);
@@ -547,7 +646,7 @@ static int sprd_drm_pm_resume(struct device *dev)
 		return 0;
 	}
 
-	if (boot_mode_check("androidboot.mode=autotest")) {
+	if (boot_mode_check("sprdboot.mode=autotest")) {
 		DRM_WARN("BBAT mode not need resume\n");
 		return 0;
 	}
@@ -598,6 +697,16 @@ static struct platform_driver *sprd_drm_drivers[]  = {
 	&sprd_dsi_driver,
 	&sprd_dphy_driver,
 #endif
+#ifdef CONFIG_DRM_SPRD_DPU1
+	&sprd_dpu1_driver,
+#endif
+#ifdef CONFIG_DRM_SPRD_DP
+	&sprd_dp_driver,
+#endif
+#ifdef CONFIG_DRM_SPRD_UMB9230S
+	&umb9230s_i2c_driver,
+	&sprd_umb9230s_driver,
+#endif
 	&sprd_drm_driver,
 };
 
@@ -606,7 +715,7 @@ static int __init sprd_drm_init(void)
 	int ret;
 	bool cali_mode;
 
-	cali_mode = boot_mode_check("androidboot.mode=cali");
+	cali_mode = boot_mode_check("sprdboot.mode=cali");
 	if (cali_mode) {
 		DRM_WARN("Calibration Mode! Don't register sprd drm driver");
 		return 0;

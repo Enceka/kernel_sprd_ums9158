@@ -15,6 +15,9 @@
 #include <drm/drm_modes.h>
 #include <drm/drm_panel.h>
 
+#define VREFRESH_CNT_MAX	20
+#define SPRD_OLED_DEFAULT_BRIGHTNESS 25
+
 enum {
 	CMD_CODE_INIT = 0,
 	CMD_CODE_SLEEP_IN,
@@ -24,10 +27,12 @@ enum {
 	CMD_OLED_REG_UNLOCK,
 	CMD_CODE_DOZE_IN,
 	CMD_CODE_DOZE_OUT,
-	CMD_CODE_RESERVED2,
+	CMD_CODE_BL_PREFIX,
 	CMD_CODE_RESERVED3,
 	CMD_CODE_RESERVED4,
 	CMD_CODE_RESERVED5,
+	CMD_CODE_CABC_ON,
+	CMD_CODE_CABC_OFF,
 	CMD_CODE_MAX,
 };
 
@@ -36,6 +41,12 @@ enum {
 	SPRD_DSI_MODE_VIDEO_BURST,
 	SPRD_DSI_MODE_VIDEO_SYNC_PULSE,
 	SPRD_DSI_MODE_VIDEO_SYNC_EVENT,
+	SPRD_DSI_MODE_CMD_DPI,
+};
+
+enum {
+	SPRD_PANEL_TYPE_LCD = 0,
+	SPRD_PANEL_TYPE_AMOLED,
 };
 
 enum {
@@ -72,11 +83,27 @@ struct panel_info {
 	struct gpio_desc *avdd_gpio;
 	struct gpio_desc *avee_gpio;
 	struct gpio_desc *reset_gpio;
-	bool gpio_request_result;
 	struct reset_sequence rst_on_seq;
 	struct reset_sequence rst_off_seq;
 	const void *cmds[CMD_CODE_MAX];
 	int cmds_len[CMD_CODE_MAX];
+	const void *vrefresh_cmds[VREFRESH_CNT_MAX];
+	int vrefresh_cmds_len[VREFRESH_CNT_MAX];
+	int panel_type;
+
+	/* cmd mode vrr config */
+	bool cmd_dpi_mode;
+	u32 vrr_mode_count;
+	u32 *vrr_mode_vrefresh;
+	bool vrefresh_cmd_changed;
+	int current_cmd_index;
+	int max_vrefresh;
+
+	u32 slice_width;
+	u32 slice_height;
+	u32 output_bpc;
+	u32 dsc_en;
+	u32 dual_dsi_en;
 
 	/* esd check parameters*/
 	bool esd_check_en;
@@ -92,6 +119,9 @@ struct panel_info {
 	u32 lp_rate;
 	u32 mode_flags;
 	bool use_dcs;
+
+	/* pixelpll config parameters */
+	bool dpi_clk_pixelpll;
 };
 
 struct sprd_panel {
@@ -101,6 +131,8 @@ struct sprd_panel {
 	struct panel_info info;
 	char lcd_name[50];
 	struct backlight_device *backlight;
+	struct backlight_device *oled_bdev;
+	bool sprd_bl_mipi_type;
 	struct regulator *supply;
 	struct delayed_work esd_work;
 	bool esd_work_pending;
@@ -110,6 +142,7 @@ struct sprd_panel {
 };
 
 struct sprd_oled {
+	struct device oled_dev;
 	struct backlight_device *bdev;
 	struct sprd_panel *panel;
 	struct dsi_cmd_desc *cmds[256];
@@ -122,5 +155,10 @@ int sprd_panel_parse_lcddtb(struct device_node *lcd_node,
 	struct sprd_panel *panel);
 void  sprd_panel_enter_doze(struct drm_panel *p);
 void  sprd_panel_exit_doze(struct drm_panel *p);
+int sprd_panel_send_vrefresh_cmd(struct sprd_panel *panel, int index);
+struct device_node *sprd_get_panel_node_by_name(void);
+
+#define to_sprd_panel(panel) \
+	container_of(panel, struct sprd_panel, base)
 
 #endif /* _SPRD_DSI_PANEL_H_ */

@@ -15,6 +15,7 @@
 
 /* Global config reg */
 #define R9P0_GSP_BASE_OFFSET		0x0
+#define R1P0_MMU_BASE_OFFSET		0x1000
 #define R9P0_GSP_GLB_CFG(base)		(base + R9P0_GSP_BASE_OFFSET)
 #define R9P0_GSP_INT(base)		(base + 0x004 + R9P0_GSP_BASE_OFFSET)
 #define R9P0_GSP_MOD_CFG(base)		(base + 0x008 + R9P0_GSP_BASE_OFFSET)
@@ -74,6 +75,7 @@
 #define R9P0_GSP_DEBUG7(base)		(base + 0x224 + R9P0_GSP_BASE_OFFSET)
 #define R9P0_GSP_DEBUG8(base)		(base + 0x228 + R9P0_GSP_BASE_OFFSET)
 #define R9P0_GSP_DEBUG9(base)		(base + 0x22c + R9P0_GSP_BASE_OFFSET)
+#define R9P0_GSP_DEBUG10(base)		(base + 0x230 + R9P0_GSP_BASE_OFFSET)
 
 #define R9P0_SCALE_COEF_ADDR(base)	(base + 0x300 + R9P0_GSP_BASE_OFFSET)
 #define R9P0_SCALE_COEF_OFFSET		0x200
@@ -118,6 +120,46 @@
 #define R9P0_HDR35_CFG(base, index)     (base + 0x189c + index * R9P0_HDR_OFFSET)
 #define R9P0_HDR36_CFG(base, index)     (base + 0x18a0 + index * R9P0_HDR_OFFSET)
 #define R9P0_HDR37_CFG(base, index)     (base + 0x18a4 + index * R9P0_HDR_OFFSET)
+
+/* VAU(MMU) */
+#define R1P0_MMU_INT_EN_CFG(base)	(base + 0x00a0 + R1P0_MMU_BASE_OFFSET)
+#define R1P0_MMU_INT_CLR_CFG(base)	(base + 0x00a4 + R1P0_MMU_BASE_OFFSET)
+
+/* r9p0 gsp qos config reg */
+struct GSP_QOS_REG_STRUCT {
+	unsigned int offset;
+	unsigned int mask;
+	unsigned int value;
+
+};
+
+struct GSP_QOS_REG_STRUCT r9p0_gsp_mtx_qos_qogirn6lite[] = {
+	{ 0x0000, 0x00000001, 0x00000001},
+	{ 0x0004, 0xffffffff, 0x84889090},
+	{ 0x0008, 0x3f3f3f3f, 0x02050302},
+	{ 0x000C, 0x3f3fffff, 0x10040402},
+	{ 0x0060, 0x80000003, 0x00000003},
+	{ 0x0064, 0x3fff3fff, 0x06660666},
+	{ 0x0068, 0x00000701, 0x00000001},
+};
+
+struct GSP_QOS_REG_STRUCT  r9p0_gsp_mtx_qos_qogirn6pro[] = {
+	{ 0x0000, 0x00000001, 0x00000001},
+	{ 0x0004, 0xffffffff, 0x02020202},
+	{ 0x0008, 0x3f3f3f3f, 0x02020202},
+	{ 0x000C, 0x3f3fffff, 0x02020202},
+	{ 0x0060, 0x80000003, 0x00000003},
+	{ 0x0064, 0x3fff3fff, 0x01110111},
+	{ 0x0068, 0x00000701, 0x00000001},
+
+	{ 0x0080, 0x00000001, 0x00000001},
+	{ 0x0084, 0xffffffff, 0x02020202},
+	{ 0x0088, 0x3f3f3f3f, 0x02020202},
+	{ 0x008C, 0x3f3fffff, 0x02020202},
+	{ 0x00E0, 0x80000003, 0x00000003},
+	{ 0x00E4, 0x3fff3fff, 0x01110111},
+	{ 0x00E8, 0x00000701, 0x00000001},
+};
 
 struct R9P0_GSP_GLB_CFG_REG {
 	union {
@@ -168,7 +210,42 @@ struct R9P0_GSP_INT_REG {
 			uint32_t INT_FBCDHD1_STS	:  1;
 			uint32_t INT_FBCDHD2_STS	:  1;
 			uint32_t INT_FBCDHD3_STS	:  1;
-			uint32_t Reserved2		:  6;
+			uint32_t VAU_INT		:  1;
+			uint32_t Reserved2		:  5;
+		};
+		uint32_t	value;
+	};
+};
+
+struct R1P0_MMU_INT_CLR_REG {
+	union {
+		struct {
+			uint32_t MMU_vaor_rd_clr	:  1;
+			uint32_t MMU_vaor_wr_clr	:  1;
+			uint32_t MMU_inv_rd_clr		:  1;
+			uint32_t MMU_inv_wr_clr		:  1;
+			uint32_t MMU_uns_rd_clr		:  1;
+			uint32_t MMU_uns_wr_clr		:  1;
+			uint32_t MMU_paor_rd_clr	:  1;
+			uint32_t MMU_paor_wr_clr	:  1;
+			uint32_t Reserved		:  24;
+		};
+		uint32_t	value;
+	};
+};
+
+struct R1P0_MMU_INT_EN_REG {
+	union {
+		struct {
+			uint32_t MMU_vaor_rd_en		:  1;
+			uint32_t MMU_vaor_wr_en		:  1;
+			uint32_t MMU_inv_rd_en		:  1;
+			uint32_t MMU_inv_wr_en		:  1;
+			uint32_t MMU_uns_rd_en		:  1;
+			uint32_t MMU_uns_wr_en		:  1;
+			uint32_t MMU_paor_rd_en		:  1;
+			uint32_t MMU_paor_wr_en		:  1;
+			uint32_t Reserved		:  24;
 		};
 		uint32_t	value;
 	};
@@ -484,6 +561,16 @@ struct R9P0_GSP_DEBUG9_REG {
 	union {
 		struct {
 			uint32_t   BLF_OBLK_INFO	:  28;
+			uint32_t   Reserved1		:  4;
+		};
+		uint32_t	value;
+	};
+};
+
+struct R9P0_GSP_DEBUG10_REG {
+	union {
+		struct {
+			uint32_t   AXIM_STS	:  28;
 			uint32_t   Reserved1		:  4;
 		};
 		uint32_t	value;
@@ -831,6 +918,7 @@ struct R9P0_GSP_CTL_REG_T {
 	struct R9P0_GSP_DEBUG7_REG debug7_cfg;
 	struct R9P0_GSP_DEBUG8_REG debug8_cfg;
 	struct R9P0_GSP_DEBUG9_REG debug9_cfg;
+	struct R9P0_GSP_DEBUG10_REG debug10_cfg;
 };
 
 #endif

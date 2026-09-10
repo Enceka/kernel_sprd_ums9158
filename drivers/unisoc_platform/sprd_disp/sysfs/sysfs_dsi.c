@@ -198,6 +198,16 @@ static ssize_t gen_write_store(struct device *dev,
 	for (i = 0; i < sysfs->input_len; i++)
 		pr_info("param[%d] = 0x%x\n", i, sysfs->input_param[i]);
 
+	/*
+	 * lcd can config te frequency by modifing panel's 0x35 register
+	 * if 0x35 register setted to 0x1, te may occur per line by driver ic.
+	 * too much te signal may cause too much interrupts and cause interrupt storm.
+	 */
+	if (sysfs->input_param[0] == 0x35) {
+		pr_info("modify te register may cause too much te interrupts\n");
+		return count;
+	}
+
 	mipi_dsi_generic_write(dsi->slave, sysfs->input_param, sysfs->input_len);
 
 	return count;
@@ -317,6 +327,16 @@ static ssize_t dcs_write_store(struct device *dev,
 
 	for (i = 0; i < sysfs->input_len; i++)
 		pr_info("param[%d] = 0x%x\n", i, sysfs->input_param[i]);
+
+	/*
+	 * lcd can config te frequency by modifing panel's 0x35 register
+	 * if 0x35 register setted to 0x1, te may occur per line by driver ic.
+	 * too much te signal may cause too much interrupts and cause interrupt storm.
+	 */
+	if (sysfs->input_param[0] == 0x35) {
+		pr_info("modify te register may cause too much te interrupts\n");
+		return count;
+	}
 
 	mipi_dsi_dcs_write_buffer(dsi->slave, sysfs->input_param, sysfs->input_len);
 
@@ -736,12 +756,24 @@ int sprd_dsi_sysfs_init(struct device *dev)
 	}
 
 	rc = sysfs_create_groups(&dev->kobj, dsi_groups);
-	if (rc)
+	if (rc) {
 		pr_err("create dsi attr node failed, rc=%d\n", rc);
+		kfree(sysfs);
+		sysfs = NULL;
+	}
 
 	return rc;
 }
 EXPORT_SYMBOL(sprd_dsi_sysfs_init);
+
+void sprd_dsi_sysfs_deinit(struct device *dev)
+{
+	sysfs_remove_groups(&dev->kobj, dsi_groups);
+
+	kfree(sysfs);
+	sysfs = NULL;
+}
+EXPORT_SYMBOL(sprd_dsi_sysfs_deinit);
 
 MODULE_AUTHOR("Leon He <leon.he@unisoc.com>");
 MODULE_DESCRIPTION("Add dsi attribute nodes for userspace");

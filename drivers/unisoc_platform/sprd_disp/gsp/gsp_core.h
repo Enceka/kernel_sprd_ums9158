@@ -19,7 +19,6 @@
 #define PM_RUNTIME_DELAY_MS 1000
 #define GSP_CORE_TIMER_OUT 2800 /* 2800 ms */
 
-
 struct gsp_core_ops;
 struct gsp_dev;
 struct gsp_kcfg;
@@ -107,6 +106,7 @@ enum gsp_core_suspend_state {
  */
 struct gsp_core {
 	char name[32];
+	char board_version[32];
 	int id;
 	int kcfg_num;
 	bool secure_init;
@@ -194,6 +194,7 @@ struct gsp_core_ops {
 	int __user *(*intercept)(void __user *arg, int index);
 	void (*dump)(struct gsp_core *core);
 	void (*reset)(struct gsp_core *core);
+	int (*devset)(struct device *drm_gsp[GSP_MAX_NUM], struct device *gspdev);
 };
 
 #define CORE_MAX_KCFG_NUM(core)	((core)->kcfg_num)

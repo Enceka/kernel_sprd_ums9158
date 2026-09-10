@@ -9,6 +9,7 @@
 #include <linux/of_device.h>
 #include <linux/of_irq.h>
 #include <linux/of_graph.h>
+#include <linux/of_platform.h>
 #include <linux/pm_runtime.h>
 #include <video/mipi_display.h>
 
@@ -26,6 +27,7 @@
 #include "dsi/sprd_dsi_api.h"
 #include "dphy/sprd_dphy_api.h"
 #include "sysfs/sysfs_display.h"
+#include "umb9230s/umb9230s.h"
 
 #define encoder_to_dsi(encoder) \
 	container_of(encoder, struct sprd_dsi, encoder)
@@ -49,6 +51,9 @@ static void sprd_dsi_enable(struct sprd_dsi *dsi)
 		sprd_dsi_dpi_video(dsi);
 	else
 		sprd_dsi_edpi_video(dsi);
+
+	if (dsi->dsi_slave)
+		sprd_dsi_enable(dsi->dsi_slave);
 }
 
 static void sprd_dsi_disable(struct sprd_dsi *dsi)
@@ -59,6 +64,9 @@ static void sprd_dsi_disable(struct sprd_dsi *dsi)
 		dsi->glb->disable(&dsi->ctx);
 	if (dsi->glb->power)
 		dsi->glb->power(&dsi->ctx, false);
+
+	if (dsi->dsi_slave)
+		sprd_dsi_disable(dsi->dsi_slave);
 }
 
 int dsi_panel_set_dpms_mode(struct sprd_dsi *dsi)
@@ -102,11 +110,21 @@ int dsi_panel_set_dpms_mode(struct sprd_dsi *dsi)
 	return 0;
 }
 
+static void dphy_hs_clk_enable_for_umb9230s(struct sprd_dsi *dsi)
+{
+	if (!dsi->umb9230s)
+		return;
+
+	umb9230s_phy_rx_wait_clklane_stop_state(dsi->umb9230s);
+	sprd_dphy_hs_clk_en(dsi->phy, true);
+}
+
 static void sprd_dsi_encoder_enable(struct drm_encoder *encoder)
 {
 	struct sprd_dsi *dsi = encoder_to_dsi(encoder);
 	struct sprd_crtc *crtc = to_sprd_crtc(encoder->crtc);
 	struct sprd_dpu *dpu = crtc->priv;
+	struct sprd_panel *panel = container_of(dsi->panel, struct sprd_panel, base);
 
 	DRM_INFO("%s(last_dpms=%d, dpms=%d)\n",
 			__func__, dsi->ctx.last_dpms, dsi->ctx.dpms);
@@ -118,14 +136,6 @@ static void sprd_dsi_encoder_enable(struct drm_encoder *encoder)
 	if (!encoder->crtc || !encoder->crtc->state->active ||
 	    (encoder->crtc->state->mode_changed &&
 	     !encoder->crtc->state->active_changed)) {
-		/* set dsi context esd reset status to
-		 * false for div6 esd recovery workaround
-		 * when exit this function.
-		 */
-		if (!strcmp(dpu->ctx.version, "dpu-r6p0")) {
-			if (dsi->ctx.is_esd_rst)
-				dsi->ctx.is_esd_rst = false;
-		}
 		DRM_INFO("skip dsi resume\n");
 		mutex_unlock(&dsi->lock);
 		return;
@@ -133,17 +143,30 @@ static void sprd_dsi_encoder_enable(struct drm_encoder *encoder)
 
 	if (dsi->ctx.enabled) {
 		DRM_INFO("dsi is initialized\n");
+		if (!strcmp(dpu->ctx.version, "dpu-r6p0")) {
+			if (!dpu->ctx.enabled) {
+				DRM_ERROR("dpu has no power, powered dpu\n");
+				dpu_r6p0_glb_enable(&dpu->ctx);
+				sprd_dpu_resume(dpu);
+			}
+		}
+
 		mutex_unlock(&dsi->lock);
 		return;
 	}
 
-	if (!strcmp(dpu->ctx.version, "dpu-r6p0"))
+	if (!strcmp(dpu->ctx.version, "dpu-r6p0") || !strcmp(dpu->ctx.version, "dpu-r6p1"))
 		pm_runtime_get_sync(dsi->dev.parent);
 
+	umb9230s_enable(dsi->umb9230s);
 	sprd_dsi_enable(dsi);
 	sprd_dphy_enable(dsi->phy);
 
+	dphy_hs_clk_enable_for_umb9230s(dsi);
+
 	sprd_dsi_lp_cmd_enable(dsi, true);
+	if (dsi->dsi_slave)
+		sprd_dsi_lp_cmd_enable(dsi->dsi_slave, true);
 
 	if (dsi->panel) {
 		if ((dsi->ctx.last_dpms == DRM_MODE_DPMS_SUSPEND) &&
@@ -175,6 +198,19 @@ static void sprd_dsi_encoder_enable(struct drm_encoder *encoder)
 	else
 		sprd_dphy_hs_clk_en(dsi->phy, true);
 
+	if (dsi->dsi_slave) {
+		sprd_dsi_set_work_mode(dsi->dsi_slave,
+				dsi->dsi_slave->ctx.work_mode);
+		sprd_dsi_state_reset(dsi->dsi_slave);
+
+		if (dsi->dsi_slave->ctx.nc_clk_en)
+			sprd_dsi_nc_clk_en(dsi->dsi_slave, true);
+		else
+			sprd_dphy_hs_clk_en(dsi->phy->slave, true);
+	}
+
+	umb9230s_dsi_tx_configure(dsi->umb9230s);
+
 	/* workaround:
 	 * dpu r6p0 need resume after dsi resume on div6 scences
 	 * for dsi core and dpi clk depends on dphy clk. And esd
@@ -182,12 +218,11 @@ static void sprd_dsi_encoder_enable(struct drm_encoder *encoder)
 	 * div6 source when dpu enable div6 function.
 	 */
 	if (!strcmp(dpu->ctx.version, "dpu-r6p0")) {
-		if (!dsi->ctx.is_esd_rst) {
+		if (!panel->is_esd_rst) {
 			sprd_dpu_resume(dpu);
 		} else {
 			if (dsi->ctx.dpi_clk_div)
 				dpu_r6p0_enable_div6_clk(&dpu->ctx);
-			dsi->ctx.is_esd_rst = false;
 		}
 	}
 	/*
@@ -210,7 +245,6 @@ static void sprd_dsi_encoder_disable(struct drm_encoder *encoder)
 	struct sprd_dsi *dsi = encoder_to_dsi(encoder);
 	struct sprd_crtc *crtc = to_sprd_crtc(encoder->crtc);
 	struct sprd_dpu *dpu = crtc->priv;
-	struct sprd_panel *panel = container_of(dsi->panel, struct sprd_panel, base);
 
 	DRM_INFO("%s(last_dpms=%d, dpms=%d)\n",
 			__func__, dsi->ctx.last_dpms, dsi->ctx.dpms);
@@ -219,6 +253,7 @@ static void sprd_dsi_encoder_disable(struct drm_encoder *encoder)
 	/* add if condition to avoid suspend dsi for SR feature */
 	if (encoder->crtc->state->mode_changed &&
 	    !encoder->crtc->state->active_changed) {
+			DRM_INFO("skip dsi encoder disable\n");
 			mutex_unlock(&dsi->lock);
 			return;
 	}
@@ -239,6 +274,14 @@ static void sprd_dsi_encoder_disable(struct drm_encoder *encoder)
 	sprd_dsi_set_work_mode(dsi, DSI_MODE_CMD);
 	sprd_dsi_lp_cmd_enable(dsi, true);
 
+	if (dsi->dsi_slave) {
+		sprd_dsi_set_work_mode(dsi->dsi_slave, DSI_MODE_CMD);
+		sprd_dsi_lp_cmd_enable(dsi->dsi_slave, true);
+	}
+
+	umb9230s_dsi_tx_set_work_mode(dsi->umb9230s, DSI_MODE_CMD);
+	umb9230s_dsi_tx_lp_cmd_enable(dsi->umb9230s, true);
+
 	if (dsi->panel) {
 		if ((dsi->ctx.dpms == DRM_MODE_DPMS_SUSPEND) &&
 		    ((dsi->ctx.last_dpms == DRM_MODE_DPMS_STANDBY)
@@ -249,25 +292,19 @@ static void sprd_dsi_encoder_disable(struct drm_encoder *encoder)
 			drm_panel_disable(dsi->panel);
 			if (dsi->phy->ctx.ulps_enable)
 				sprd_dphy_ulps_enter(dsi->phy);
+
+			umb9230s_phy_tx_ulps_enter(dsi->umb9230s);
+
 			drm_panel_unprepare(dsi->panel);
 		}
 	}
 
-	/* workaround:
-	 * dpu r6p0 need resume after dsi resume on div6 scences
-	 * for dsi core and dpi clk depends on dphy clk. And esd
-	 * recovery do not resume dpu, so dpu need get panel esd
-	 * reset status to enabe global registers or not.
-	 */
-	if (!strcmp(dpu->ctx.version, "dpu-r6p0")) {
-		if (panel->is_esd_rst)
-			dsi->ctx.is_esd_rst = true;
-	}
+	umb9230s_disable(dsi->umb9230s);
 
 	sprd_dphy_disable(dsi->phy);
 	sprd_dsi_disable(dsi);
 
-	if (!strcmp(dpu->ctx.version, "dpu-r6p0"))
+	if (!strcmp(dpu->ctx.version, "dpu-r6p0") || !strcmp(dpu->ctx.version, "dpu-r6p1"))
 		pm_runtime_put(dsi->dev.parent);
 
 	dsi->ctx.enabled = false;
@@ -276,11 +313,21 @@ static void sprd_dsi_encoder_disable(struct drm_encoder *encoder)
 	mutex_unlock(&dsi->lock);
 }
 
-void sprd_dsi_encoder_disable_force(struct drm_encoder *encoder)
+void sprd_dsi_encoder_disable_force(struct drm_crtc *crtc)
 {
-	struct sprd_dsi *dsi = encoder_to_dsi(encoder);
+	struct sprd_crtc *sprd_crtc = container_of(crtc, struct sprd_crtc, base);
+	struct sprd_dpu *dpu = sprd_crtc->priv;
+	struct sprd_dsi *dsi = dpu->dsi;
 
 	DRM_INFO("%s()\n", __func__);
+	mutex_lock(&dsi->lock);
+
+	sprd_dpu_stop(dpu);
+
+	if (!strcmp(dpu->ctx.version, "dpu-r6p0") && dsi->ctx.dpi_clk_div) {
+		dsi->ctx.clk_dpi_384m = true;
+		dsi->glb->disable(&dsi->ctx);
+	}
 
 	sprd_dsi_set_work_mode(dsi, DSI_MODE_CMD);
 	sprd_dsi_lp_cmd_enable(dsi, true);
@@ -293,15 +340,22 @@ void sprd_dsi_encoder_disable_force(struct drm_encoder *encoder)
 
 	sprd_dphy_disable(dsi->phy);
 	sprd_dsi_disable(dsi);
+	dsi->ctx.enabled = false;
+
+	if (!strcmp(dpu->ctx.version, "dpu-r6p0")) {
+		disable_irq(dpu->ctx.irq);
+		sprd_dpu_disable(dpu);
+	}
+
+	pm_runtime_put(dsi->dev.parent);
+	mutex_unlock(&dsi->lock);
 }
 
 static void sprd_dsi_encoder_mode_set(struct drm_encoder *encoder,
 				 struct drm_display_mode *mode,
 				 struct drm_display_mode *adj_mode)
 {
-	struct sprd_dsi *dsi = encoder_to_dsi(encoder);
-
-	DRM_INFO("%s() set mode: %s\n", __func__, dsi->mode->name);
+	DRM_INFO("%s() mode: "DRM_MODE_FMT"\n", __func__, DRM_MODE_ARG(mode));
 }
 
 static int sprd_dsi_encoder_atomic_check(struct drm_encoder *encoder,
@@ -397,6 +451,46 @@ static int sprd_dsi_phy_attach(struct sprd_dsi *dsi)
 	dsi->phy->ctx.lanes = dsi->ctx.lanes;
 	dsi->phy->ctx.freq = dsi->ctx.byte_clk * 8;
 
+	if (dsi->dsi_slave && dsi->phy->slave) {
+		dsi->phy->slave->ctx.lanes = dsi->ctx.lanes;
+		dsi->phy->slave->ctx.freq = dsi->phy->ctx.freq;
+	}
+
+	return 0;
+}
+
+static int sprd_dsi_umb9230s_attach(struct sprd_dsi *dsi)
+{
+	struct device *dev;
+	struct device_node *lcd_node;
+
+	if (!dsi->ctx.umb9230s_en)
+		return 0;
+
+	DRM_INFO("dsi attach umb9230s\n");
+
+	dev = sprd_disp_pipe_get_by_port(dsi->phy->dev.parent, 2);
+	if (!dev)
+		return -ENODEV;
+
+	dsi->umb9230s = dev_get_drvdata(dev);
+	if (!dsi->umb9230s) {
+		DRM_ERROR("get drvdata failed\n");
+		return -EINVAL;
+	}
+
+	dsi->umb9230s->dsi_ctx.lanes = dsi->ctx.lanes;
+	dsi->umb9230s->dsi_ctx.esc_clk = dsi->ctx.esc_clk;
+	dsi->umb9230s->dsi_ctx.video_lp_cmd_en = dsi->ctx.video_lp_cmd_en;
+	dsi->umb9230s->dsi_ctx.hporch_lp_disable = dsi->ctx.hporch_lp_disable;
+
+	lcd_node = dsi->panel->dev->of_node;
+	umb9230s_parse_lcd_info(dsi->umb9230s, lcd_node);
+
+	dsi->umb9230s->phy_ctx.lanes = dsi->ctx.lanes;
+	dsi->umb9230s->phy_ctx.freq = dsi->umb9230s->dsi_ctx.byte_clk * 8;
+	dsi->umb9230s->phy_ctx.ulps_enable = dsi->phy->ctx.ulps_enable;
+
 	return 0;
 }
 
@@ -405,6 +499,7 @@ static int sprd_dsi_host_attach(struct mipi_dsi_host *host,
 {
 	struct sprd_dsi *dsi = host_to_dsi(host);
 	struct dsi_context *ctx = &dsi->ctx;
+	struct dsi_context *ctx_slave;
 	struct device_node *lcd_node;
 	u32 val;
 	int ret;
@@ -440,6 +535,10 @@ static int sprd_dsi_host_attach(struct mipi_dsi_host *host,
 	if (ret)
 		return ret;
 
+	ret = sprd_dsi_umb9230s_attach(dsi);
+	if (ret)
+		DRM_ERROR("dsi attach umb9230s failed\n");
+
 	lcd_node = dsi->panel->dev->of_node;
 
 	ctx->lcd_name = lcd_node->name;
@@ -462,6 +561,22 @@ static int sprd_dsi_host_attach(struct mipi_dsi_host *host,
 	else
 		dsi->phy->ctx.aod_mode = 0;
 
+	if (!of_property_read_u32(lcd_node, "sprd,video-lp-en-mode", &val))
+		ctx->video_lp_config = val;
+	else
+		ctx->video_lp_config = 15;
+
+	if (dsi->dsi_slave) {
+		ctx_slave = &dsi->dsi_slave->ctx;
+		ctx_slave->lanes = ctx->lanes;
+		ctx_slave->format = ctx->format;
+		ctx_slave->work_mode = ctx->work_mode;
+		ctx_slave->burst_mode = ctx->burst_mode;
+		ctx_slave->nc_clk_en = ctx->nc_clk_en;
+		ctx_slave->byte_clk = ctx->byte_clk;
+		ctx_slave->esc_clk = ctx->esc_clk;
+	}
+
 	return 0;
 }
 
@@ -478,18 +593,36 @@ static ssize_t sprd_dsi_host_transfer(struct mipi_dsi_host *host,
 {
 	struct sprd_dsi *dsi = host_to_dsi(host);
 	const u8 *tx_buf = msg->tx_buf;
+	int ret = 0;
 
 	if (msg->rx_buf && msg->rx_len) {
 		u8 lsb = (msg->tx_len > 0) ? tx_buf[0] : 0;
 		u8 msb = (msg->tx_len > 1) ? tx_buf[1] : 0;
 
-		return sprd_dsi_rd_pkt(dsi, msg->channel, msg->type,
+		if (dsi->umb9230s)
+			return umb9230s_dsi_tx_rd_pkt(dsi->umb9230s, msg->channel, msg->type,
+				msb, lsb, msg->rx_buf, msg->rx_len);
+		else
+			return sprd_dsi_rd_pkt(dsi, msg->channel, msg->type,
 				msb, lsb, msg->rx_buf, msg->rx_len);
 	}
 
-	if (msg->tx_buf && msg->tx_len)
-		return sprd_dsi_wr_pkt(dsi, msg->channel, msg->type,
+	if (msg->tx_buf && msg->tx_len) {
+		if (dsi->umb9230s)
+			ret = umb9230s_dsi_tx_wr_pkt(dsi->umb9230s, msg->channel, msg->type,
+						tx_buf, msg->tx_len);
+		else
+			ret = sprd_dsi_wr_pkt(dsi, msg->channel, msg->type,
+						tx_buf, msg->tx_len);
+
+		if (ret)
+			return ret;
+
+		if (dsi->dsi_slave)
+			ret = sprd_dsi_wr_pkt(dsi->dsi_slave, msg->channel, msg->type,
 					tx_buf, msg->tx_len);
+		return ret;
+	}
 
 	return 0;
 }
@@ -532,14 +665,9 @@ sprd_dsi_connector_mode_valid(struct drm_connector *connector,
 
 	DRM_INFO("%s() mode: "DRM_MODE_FMT"\n", __func__, DRM_MODE_ARG(mode));
 
-	if (mode->type & DRM_MODE_TYPE_PREFERRED) {
-		dsi->mode = mode;
-		drm_display_mode_to_videomode(dsi->mode, &dsi->ctx.vm);
-	}
-
 	if (mode->type & DRM_MODE_TYPE_USERDEF) {
 		list_for_each_entry(pmode, &connector->modes, head) {
-			if (pmode->type & DRM_MODE_TYPE_PREFERRED) {
+			if ((pmode->type & DRM_MODE_TYPE_PREFERRED) || (pmode->type == DRM_MODE_TYPE_DRIVER)) {
 				list_del(&pmode->head);
 				drm_mode_destroy(connector->dev, pmode);
 				dsi->mode = mode;
@@ -589,6 +717,27 @@ static void sprd_dsi_connector_destroy(struct drm_connector *connector)
 	drm_connector_cleanup(connector);
 }
 
+static int sprd_dsi_atomic_get_property(struct drm_connector *connector,
+					const struct drm_connector_state *state,
+					struct drm_property *property,
+					uint64_t *val)
+{
+	struct sprd_dsi *dsi = connector_to_dsi(connector);
+
+	DRM_DEBUG("%s()\n", __func__);
+
+	if (property == dsi->edid_prop) {
+		memcpy(dsi->edid_blob->data, &dsi->edid_info, sizeof(struct edid));
+		*val = dsi->edid_blob->base.id;
+		DRM_INFO("%s() val = %d\n", __func__, dsi->edid_blob->base.id);
+	} else {
+		DRM_ERROR("property %s is invalid\n", property->name);
+ 		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static const struct drm_connector_funcs sprd_dsi_atomic_connector_funcs = {
 	.fill_modes = drm_helper_probe_single_connector_modes,
 	.detect = sprd_dsi_connector_detect,
@@ -596,12 +745,14 @@ static const struct drm_connector_funcs sprd_dsi_atomic_connector_funcs = {
 	.reset = drm_atomic_helper_connector_reset,
 	.atomic_duplicate_state = drm_atomic_helper_connector_duplicate_state,
 	.atomic_destroy_state = drm_atomic_helper_connector_destroy_state,
+	.atomic_get_property = sprd_dsi_atomic_get_property,
 };
 
 static int sprd_dsi_connector_init(struct drm_device *drm, struct sprd_dsi *dsi)
 {
 	struct drm_encoder *encoder = &dsi->encoder;
 	struct drm_connector *connector = &dsi->connector;
+	struct drm_property *prop;
 	int ret;
 
 	ret = drm_connector_init(drm, connector,
@@ -618,6 +769,23 @@ static int sprd_dsi_connector_init(struct drm_device *drm, struct sprd_dsi *dsi)
 	ret = drm_connector_attach_encoder(connector, encoder);
 	if (ret)
 		return ret;
+
+	dsi->edid_blob = drm_property_create_blob(drm, (sizeof(struct edid) + 1), &dsi->edid_info);
+	if (IS_ERR(dsi->edid_blob)) {
+		DRM_ERROR("drm_property_create_blob edid blob failed\n");
+		return PTR_ERR(dsi->edid_blob);
+	}
+
+	prop = drm_property_create(drm, DRM_MODE_PROP_BLOB, "EDID INFO", 0);
+	if (!prop) {
+		DRM_ERROR("drm_property_create dpu version failed\n");
+		return -ENOMEM;
+	}
+
+	drm_object_attach_property(&connector->base, prop, dsi->edid_blob->base.id);
+	dsi->edid_prop = prop;
+
+	DRM_INFO("dsi->edid_blob->base.id:%d\n", dsi->edid_blob->base.id);
 
 	return 0;
 }
@@ -656,6 +824,13 @@ static int sprd_dsi_glb_init(struct sprd_dsi *dsi)
 		dsi->glb->power(&dsi->ctx, true);
 	if (dsi->glb->enable)
 		dsi->glb->enable(&dsi->ctx);
+
+	if (dsi->dsi_slave) {
+		if (dsi->dsi_slave->glb && dsi->dsi_slave->glb->power)
+			dsi->dsi_slave->glb->power(&dsi->dsi_slave->ctx, true);
+		if (dsi->dsi_slave->glb && dsi->dsi_slave->glb->enable)
+			dsi->dsi_slave->glb->enable(&dsi->dsi_slave->ctx);
+	}
 
 	return 0;
 }
@@ -765,7 +940,7 @@ static int sprd_dsi_device_create(struct sprd_dsi *dsi,
 	dsi->dev.class = display_class;
 	dsi->dev.parent = parent;
 	dsi->dev.of_node = parent->of_node;
-	dev_set_name(&dsi->dev, "dsi");
+	dev_set_name(&dsi->dev, "dsi%d", dsi->ctx.id);
 	dev_set_drvdata(&dsi->dev, dsi);
 
 	ret = device_register(&dsi->dev);
@@ -775,9 +950,29 @@ static int sprd_dsi_device_create(struct sprd_dsi *dsi,
 	return ret;
 }
 
-static int sprd_dsi_context_init(struct sprd_dsi *dsi, struct device_node *np)
+static unsigned char kEdid0[128] = {
+        0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x1c, 0xec, 0x01, 0x00,
+        0x01, 0x00, 0x00, 0x00, 0x1b, 0x10, 0x01, 0x03, 0x80, 0x50, 0x2d, 0x78,
+        0x0a, 0x0d, 0xc9, 0xa0, 0x57, 0x47, 0x98, 0x27, 0x12, 0x48, 0x4c, 0x00,
+        0x00, 0x00, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+        0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x02, 0x3a, 0x80, 0x18, 0x71, 0x38,
+        0x2d, 0x40, 0x58, 0x2c, 0x45, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0xfc, 0x00, 0x45, 0x4d, 0x55, 0x5f, 0x64, 0x69, 0x73,
+        0x70, 0x6c, 0x61, 0x79, 0x5f, 0x30, 0x00, 0x4b
+};
+
+static void sprd_edid_set_default_prop(struct edid *edid_info)
+{
+	memcpy(edid_info, kEdid0, sizeof(struct edid));
+}
+
+static int sprd_dsi_context_init(struct sprd_dsi *dsi, struct device *dev)
 {
 	struct dsi_context *ctx = &dsi->ctx;
+	struct device_node *np = dev->of_node;
 	struct resource r;
 	u32 tmp;
 
@@ -789,11 +984,14 @@ static int sprd_dsi_context_init(struct sprd_dsi *dsi, struct device_node *np)
 		return -ENODEV;
 	}
 	ctx->base = (unsigned long)
-	    ioremap(r.start, resource_size(&r));
+	    devm_ioremap(dev, r.start, resource_size(&r));
 	if (ctx->base == 0) {
 		DRM_ERROR("dsi ctrl reg base ioremap failed\n");
 		return -ENODEV;
 	}
+
+	if (!of_property_read_u32(np, "dev-id", &tmp))
+		ctx->id = tmp;
 
 	if (!of_property_read_u32(np, "sprd,data-hs2lp", &tmp))
 		ctx->data_hs2lp = tmp;
@@ -829,6 +1027,11 @@ static int sprd_dsi_context_init(struct sprd_dsi *dsi, struct device_node *np)
 		ctx->int1_mask = tmp;
 	else
 		ctx->int1_mask = 0xffffffff;
+
+	if (of_property_read_bool(np, "sprd,umb9230s-en"))
+		ctx->umb9230s_en = 1;
+
+	sprd_edid_set_default_prop(&dsi->edid_info);
 
 	dsi->ctx.enabled = true;
 
@@ -870,6 +1073,16 @@ static const struct sprd_dsi_ops qogirn6pro_dsi = {
 	.glb = &qogirn6pro_dsi_glb_ops
 };
 
+static const struct sprd_dsi_ops qogirn6pro_dsi1 = {
+	.core = &dsi_ctrl_r1p0_ops,
+	.glb = &qogirn6pro_dsi_s_glb_ops,
+};
+
+static const struct sprd_dsi_ops qogirn6lite_dsi = {
+	.core = &dsi_ctrl_r1p1_ops,
+	.glb = &qogirn6lite_dsi_glb_ops
+};
+
 static const struct of_device_id dsi_match_table[] = {
 	{ .compatible = "sprd,sharkle-dsi-host",
 	  .data = &sharkle_dsi },
@@ -885,8 +1098,52 @@ static const struct of_device_id dsi_match_table[] = {
 	  .data = &qogirl6_dsi },
 	{ .compatible = "sprd,qogirn6pro-dsi-host",
 	  .data = &qogirn6pro_dsi },
+	{ .compatible = "sprd,qogirn6pro-dsi1-host",
+	  .data = &qogirn6pro_dsi1 },
+	{ .compatible = "sprd,qogirn6lite-dsi-host",
+	  .data = &qogirn6lite_dsi },
 	{ /* sentinel */ },
 };
+
+int sprd_dual_dsi_parse_dt(struct sprd_dsi *dsi, struct device_node *np) {
+	struct device_node *lcd_node;
+	int rc;
+	u32 val;
+
+	lcd_node = sprd_get_panel_node_by_name();
+	if (!lcd_node)
+		return -ENODEV;
+
+	rc = of_property_read_u32(lcd_node, "sprd,dual-dsi-enable", &val);
+	if (!rc)
+		dsi->dual_dsi_en = val;
+	else
+		DRM_DEBUG("dual-dsi-enable is not found!\n");
+
+	return 0;
+}
+
+static int sprd_dsi_dual_channel_init(struct sprd_dsi *dsi)
+{
+	struct device_node *np;
+	struct platform_device *secondary;
+
+	np = of_parse_phandle(dsi->dev.of_node, "sprd,dual-channel", 0);
+	if (np) {
+		DRM_INFO("find sprd,dual-channel\n");
+		secondary = of_find_device_by_node(np);
+		dsi->dsi_slave = dev_get_drvdata(&secondary->dev);
+		of_node_put(np);
+
+		if (!dsi->dsi_slave)
+			return -EPROBE_DEFER;
+
+		dsi->dsi_slave->dsi_master = dsi;
+		dsi->dsi_slave->dual_dsi_en = 1;
+	}
+
+	return 0;
+}
 
 static int sprd_dsi_probe(struct platform_device *pdev)
 {
@@ -901,6 +1158,17 @@ static int sprd_dsi_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
+	/*
+	 * FIXME:
+	 * Every time hwc finished init, it will set connector dpms to DRM_MODE_DPMS_ON.
+	 * We use connector dpms status to check if display pipeline is ready instead of active state of crtc,
+	 * because releation ship between drm object connetor & encoder & crtc will be destroied during modeset.
+	 * However, after we use kzalloc allocing dsi struct, the dpms value of connetor is set to default value 0,
+	 * the value of DRM_MODE_DPMS_ON is set to 0 by linux kernel original design.
+	 * So, we initialize dpms status to off when after dsi sturct created.
+	 */
+	dsi->connector.dpms = DRM_MODE_DPMS_OFF;
+
 	pdata = of_device_get_match_data(&pdev->dev);
 	if (pdata) {
 		dsi->core = pdata->core;
@@ -910,7 +1178,7 @@ static int sprd_dsi_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	ret = sprd_dsi_context_init(dsi, np);
+	ret = sprd_dsi_context_init(dsi, &pdev->dev);
 	if (ret)
 		return ret;
 
@@ -918,15 +1186,32 @@ static int sprd_dsi_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	ret = sprd_dsi_sysfs_init(&dsi->dev);
-	if (ret)
-		return ret;
-
 	platform_set_drvdata(pdev, dsi);
+
+	if (dsi->ctx.id) {
+		DRM_INFO("dsi slave skip other action\n");
+		return 0;
+	}
+
+	ret = sprd_dual_dsi_parse_dt(dsi, np);
+	if (ret) {
+		DRM_ERROR("parse dual dsi info failed\n");
+		return ret;
+	}
+
+	if (dsi->dual_dsi_en) {
+		ret = sprd_dsi_dual_channel_init(dsi);
+		if (ret)
+			return ret;
+	}
 
 	ret = sprd_dsi_host_init(&pdev->dev, dsi);
 	if (ret)
 		return ret;
+
+        ret = sprd_dsi_sysfs_init(&dsi->dev);
+        if (ret)
+                return ret;
 
 	mutex_init(&dsi->lock);
 
@@ -939,7 +1224,12 @@ static int sprd_dsi_probe(struct platform_device *pdev)
 
 static int sprd_dsi_remove(struct platform_device *pdev)
 {
+	struct sprd_dsi *dsi = platform_get_drvdata(pdev);
+
 	component_del(&pdev->dev, &dsi_component_ops);
+
+	if (dsi)
+		sprd_dsi_sysfs_deinit(&dsi->dev);
 
 	return 0;
 }

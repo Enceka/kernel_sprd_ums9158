@@ -24,11 +24,69 @@
 #include "gsp_sync.h"
 #include "gsp_sysfs.h"
 #include "gsp_workqueue.h"
+#include "gsp_lite_r2p0/gsp_lite_r2p0_core.h"
+#include "gsp_lite_r3p0/gsp_lite_r3p0_core.h"
+#include "gsp_lite_r4p0/gsp_lite_r4p0_core.h"
+#include "gsp_r6p0/gsp_r6p0_core.h"
 #include "gsp_r8p0/gsp_r8p0_core.h"
 #include "gsp_r9p0/gsp_r9p0_core.h"
 
-#include "../sprd_drm.h"
-#include "../sprd_drm_gsp.h"
+static struct gsp_core_ops gsp_lite_r2p0_core_ops = {
+	.parse_dt = gsp_lite_r2p0_core_parse_dt,
+	.alloc = gsp_lite_r2p0_core_alloc,
+	.init = gsp_lite_r2p0_core_init,
+	.copy = gsp_lite_r2p0_core_copy_cfg,
+	.trigger = gsp_lite_r2p0_core_trigger,
+	.release = gsp_lite_r2p0_core_release,
+	.enable = gsp_lite_r2p0_core_enable,
+	.disable = gsp_lite_r2p0_core_disable,
+	.intercept = gsp_lite_r2p0_core_intercept,
+	.reset = gsp_lite_r2p0_core_reset,
+	.dump = gsp_lite_r2p0_core_dump,
+};
+
+static struct gsp_core_ops gsp_lite_r3p0_core_ops = {
+	.parse_dt = gsp_lite_r3p0_core_parse_dt,
+	.alloc = gsp_lite_r3p0_core_alloc,
+	.init = gsp_lite_r3p0_core_init,
+	.copy = gsp_lite_r3p0_core_copy_cfg,
+	.trigger = gsp_lite_r3p0_core_trigger,
+	.release = gsp_lite_r3p0_core_release,
+	.enable = gsp_lite_r3p0_core_enable,
+	.disable = gsp_lite_r3p0_core_disable,
+	.intercept = gsp_lite_r3p0_core_intercept,
+	.reset = gsp_lite_r3p0_core_reset,
+	.dump = gsp_lite_r3p0_core_dump,
+};
+
+static struct gsp_core_ops gsp_r6p0_core_ops = {
+	.parse_dt = gsp_r6p0_core_parse_dt,
+	.alloc = gsp_r6p0_core_alloc,
+	.init = gsp_r6p0_core_init,
+	.copy = gsp_r6p0_core_copy_cfg,
+	.trigger = gsp_r6p0_core_trigger,
+	.release = gsp_r6p0_core_release,
+	.enable = gsp_r6p0_core_enable,
+	.disable = gsp_r6p0_core_disable,
+	.intercept = gsp_r6p0_core_intercept,
+	.reset = gsp_r6p0_core_reset,
+	.dump = gsp_r6p0_core_dump,
+};
+
+static struct gsp_core_ops gsp_lite_r4p0_core_ops = {
+	.parse_dt = gsp_lite_r4p0_core_parse_dt,
+	.alloc = gsp_lite_r4p0_core_alloc,
+	.init = gsp_lite_r4p0_core_init,
+	.copy = gsp_lite_r4p0_core_copy_cfg,
+	.trigger = gsp_lite_r4p0_core_trigger,
+	.release = gsp_lite_r4p0_core_release,
+	.enable = gsp_lite_r4p0_core_enable,
+	.disable = gsp_lite_r4p0_core_disable,
+	.intercept = gsp_lite_r4p0_core_intercept,
+	.reset = gsp_lite_r4p0_core_reset,
+	.dump = gsp_lite_r4p0_core_dump,
+	.devset = gsp_lite_r4p0_core_devset,
+};
 
 static struct gsp_core_ops gsp_r8p0_core_ops = {
 	.parse_dt = gsp_r8p0_core_parse_dt,
@@ -56,13 +114,28 @@ static struct gsp_core_ops gsp_r9p0_core_ops = {
 	.intercept = gsp_r9p0_core_intercept,
 	.reset = gsp_r9p0_core_reset,
 	.dump = gsp_r9p0_core_dump,
+	.devset = gsp_r9p0_core_devset,
 };
 
 static struct of_device_id gsp_dt_ids[] = {
+	{.compatible = "sprd,gsp-lite_r2p0-sharkle",
+	 .data = (void *)&gsp_lite_r2p0_core_ops},
+	{.compatible = "sprd,gsp-lite_r2p0-pike2",
+	 .data = (void *)&gsp_lite_r2p0_core_ops},
+	{.compatible = "sprd,gsp-lite_r3p0-sharkl5",
+	 .data = (void *)&gsp_lite_r3p0_core_ops},
+	{.compatible = "sprd,gsp-r6p0-sharkl3",
+	 .data = (void *)&gsp_r6p0_core_ops},
 	{.compatible = "sprd,gsp-r8p0-sharkl5pro",
+	 .data = (void *)&gsp_r8p0_core_ops},
+	{.compatible = "sprd,gsp-r8p0-qogirl6",
 	 .data = (void *)&gsp_r8p0_core_ops},
 	{.compatible = "sprd,gsp-r9p0-qogirn6pro",
 	.data = (void *)&gsp_r9p0_core_ops},
+	{.compatible = "sprd,gsp-r9p0-qogirn6l",
+	.data = (void *)&gsp_r9p0_core_ops},
+	{.compatible = "sprd,gsp-lite-r4p0-qogirn6pro",
+	.data = (void *)&gsp_lite_r4p0_core_ops},
 	{},
 };
 MODULE_DEVICE_TABLE(of, gsp_dt_ids);
@@ -81,7 +154,8 @@ static int boot_mode_check(void)
 	if (ret < 0)
 		return 0;
 
-	if (strstr(cmd_line, "androidboot.mode=cali"))
+	if (strstr(cmd_line, "sprdboot.mode=cali") ||
+		strstr(cmd_line, "androidboot.mode=cali"))
 		ret = 1;
 
 	return ret;
@@ -89,7 +163,7 @@ static int boot_mode_check(void)
 
 int gsp_dev_name_cmp(struct gsp_dev *gsp)
 {
-	return strncmp(gsp->name, GSP_DEVICE_NAME, sizeof(gsp->name));
+	return strncmp(gsp->name, GSP_DEVICE_NAME, strlen(GSP_DEVICE_NAME));
 }
 
 int gsp_dev_verify(struct gsp_dev *gsp)
@@ -113,11 +187,31 @@ void gsp_dev_set(struct gsp_dev *gsp, struct platform_device *pdev)
 	platform_set_drvdata(pdev, gsp);
 }
 
-void gsp_drm_dev_set(struct drm_device *drm_dev, struct device *dev)
+void gsp_drm_dev_set(struct drm_device *drm_dev, struct gsp_dev *gsp)
 {
 	struct sprd_drm *priv = drm_dev->dev_private;
+	struct device *gspdev = gsp->dev;
+	struct gsp_core *core = NULL;
 
-	priv->gsp_dev = dev;
+	for_each_gsp_core(core, gsp) {
+		if (core->ops->devset)
+			core->ops->devset(priv->gsp_dev, gspdev);
+		else
+			priv->gsp_dev[0] = gspdev;
+	}
+}
+
+void gsp_drm_dev_clear(struct drm_device *drm_dev, struct gsp_dev *gsp)
+{
+	struct sprd_drm *priv = drm_dev->dev_private;
+	struct gsp_core *core = NULL;
+
+	for_each_gsp_core(core, gsp) {
+		if (core->ops->devset)
+			core->ops->devset(priv->gsp_dev, NULL);
+		else
+			priv->gsp_dev[0] = NULL;
+	}
 }
 
 struct gsp_core *gsp_dev_to_core(struct gsp_dev *gsp, int index)
@@ -323,12 +417,26 @@ exit:
 	return ret;
 }
 
+void gsp_dev_copy_name(const char *orig, char *dst)
+{
+	int i = 0;
+
+	for (i = 0; i < 2; i++) {
+		while (*orig != '-')
+			orig++;
+		orig++;
+	}
+
+	strcpy(dst, orig);
+}
+
 static int gsp_dev_alloc(struct device *dev, struct gsp_dev **gsp)
 {
 	int ret = -1;
 	int i;
 	u32 cnt = 0;
 	const char *name = NULL;
+	const char *tmp = NULL;
 	struct device_node *np = NULL;
 	struct device_node *child = NULL;
 	struct gsp_core *core = NULL;
@@ -368,6 +476,12 @@ static int gsp_dev_alloc(struct device *dev, struct gsp_dev **gsp)
 	GSP_DEV_INFO(dev, "io count: %d\n", cnt);
 	(*gsp)->io_cnt = cnt;
 
+	ret = of_property_read_string(np, "compatible", &tmp);
+	if (ret) {
+		GSP_ERR("read compatible name failed\n");
+		return ret;
+	}
+
 	ops = gsp_dev_to_core_ops(*gsp);
 	if (IS_ERR_OR_NULL(ops)) {
 		GSP_DEV_ERR(dev, "dev to core ops failed\n");
@@ -389,6 +503,8 @@ static int gsp_dev_alloc(struct device *dev, struct gsp_dev **gsp)
 				gsp_core_to_id(core));
 		gsp_dev_add_core(*gsp, core);
 	}
+
+	gsp_dev_copy_name(tmp, core->board_version);
 
 	return ret;
 }
@@ -496,7 +612,7 @@ int sprd_gsp_get_capability_ioctl(struct drm_device *drm_dev, void *data,
 		return -1;
 	}
 
-	dev = priv->gsp_dev;
+	dev = priv->gsp_dev[drm_capa->gsp_id];
 	if (IS_ERR_OR_NULL(dev)) {
 		GSP_ERR("null dev\n");
 		return -1;
@@ -572,7 +688,7 @@ int sprd_gsp_trigger_ioctl(struct drm_device *drm_dev, void *data,
 	}
 
 
-	dev = priv->gsp_dev;
+	dev = priv->gsp_dev[cmd->gsp_id];
 	if (IS_ERR_OR_NULL(dev)) {
 		GSP_ERR("null dev\n");
 		return -1;
@@ -635,6 +751,7 @@ int sprd_gsp_trigger_ioctl(struct drm_device *drm_dev, void *data,
 
 	pm_runtime_mark_last_busy(gsp->dev);
 	pm_runtime_get_sync(gsp->dev);
+	gsp->pm_runtime_ready = true;
 
 	if (gsp_dev_resume_wait(gsp))
 		goto kcfg_list_release;
@@ -678,7 +795,7 @@ static int gsp_miscdev_register(struct gsp_dev *gsp)
 	}
 
 	gsp->mdev.minor = MISC_DYNAMIC_MINOR;
-	gsp->mdev.name = "gsp";
+	gsp->mdev.name = gsp->name;
 
 	return misc_register(&gsp->mdev);
 }
@@ -758,13 +875,7 @@ static int sprd_gsp_bind(struct device *dev, struct device *master, void *data)
 		goto dev_deinit;
 	}
 
-	gsp_drm_dev_set(drm_dev, dev);
-
-	pm_runtime_set_active(&pdev->dev);
-	pm_runtime_set_autosuspend_delay(&pdev->dev, PM_RUNTIME_DELAY_MS);
-	pm_runtime_use_autosuspend(&pdev->dev);
-
-	pm_runtime_enable(&pdev->dev);
+	gsp_drm_dev_set(drm_dev, gsp);
 
 	GSP_DEV_INFO(dev, "dev bind success\n");
 
@@ -779,8 +890,15 @@ static void sprd_gsp_unbind(struct device *dev, struct device *master,
 	void *data)
 {
 	struct drm_device *drm_dev = data;
+	struct platform_device *pdev = NULL;
+	struct gsp_dev *gsp = NULL;
 
-	gsp_drm_dev_set(drm_dev, NULL);
+	pdev = to_platform_device(dev);
+	gsp = platform_get_drvdata(pdev);
+
+	gsp_drm_dev_clear(drm_dev, gsp);
+
+	gsp_dev_deinit(gsp);
 }
 
 static const struct component_ops gsp_component_ops = {
@@ -811,6 +929,12 @@ static int gsp_dev_probe(struct platform_device *pdev)
 	}
 
 	gsp_dev_set(gsp, pdev);
+
+	pm_runtime_set_active(&pdev->dev);
+	pm_runtime_set_autosuspend_delay(&pdev->dev, PM_RUNTIME_DELAY_MS);
+	pm_runtime_use_autosuspend(&pdev->dev);
+
+	pm_runtime_enable(&pdev->dev);
 
 	GSP_DEV_INFO(gsp->dev, "probe success\n");
 
@@ -1047,11 +1171,23 @@ static int gsp_dev_pm_resume(struct device *dev)
 #ifdef CONFIG_PM
 static int gsp_dev_runtime_suspend(struct device *dev)
 {
+	struct platform_device *pdev = to_platform_device(dev);
+	struct gsp_dev *gsp = platform_get_drvdata(pdev);
+
+	if(!gsp->pm_runtime_ready)
+		return 0;
+
 	return gsp_dev_suspend(dev);
 }
 
 static int gsp_dev_runtime_resume(struct device *dev)
 {
+	struct platform_device *pdev = to_platform_device(dev);
+	struct gsp_dev *gsp = platform_get_drvdata(pdev);
+
+	if(!gsp->pm_runtime_ready)
+		return 0;
+
 	return gsp_dev_resume(dev);
 }
 
