@@ -1,0 +1,1 @@
+obj-y += $(CONFIG_MALI_PLATFORM_NAME)/
