@@ -1019,11 +1019,15 @@ int device_links_check_suppliers(struct device *dev)
 	mutex_lock(&fwnode_link_lock);
 	if (dev->fwnode && !list_empty(&dev->fwnode->suppliers) &&
 	    !fw_devlink_is_permissive()) {
+		struct fwnode_link *__fl;
+
 		sup_fw = list_first_entry(&dev->fwnode->suppliers,
 					  struct fwnode_link,
 					  c_hook)->supplier;
-		dev_err_probe(dev, -EPROBE_DEFER, "wait for supplier %pfwP\n",
-			      sup_fw);
+		dev_err(dev, "DEFERDBG: wait for supplier %pfwP\n", sup_fw);
+		list_for_each_entry(__fl, &dev->fwnode->suppliers, c_hook)
+			dev_err(dev, "DEFERDBG:   pending supplier: %pfwP\n",
+				__fl->supplier);
 		mutex_unlock(&fwnode_link_lock);
 		return -EPROBE_DEFER;
 	}
@@ -1038,9 +1042,8 @@ int device_links_check_suppliers(struct device *dev)
 		if (link->status != DL_STATE_AVAILABLE &&
 		    !(link->flags & DL_FLAG_SYNC_STATE_ONLY)) {
 			device_links_missing_supplier(dev);
-			dev_err_probe(dev, -EPROBE_DEFER,
-				      "supplier %s not ready\n",
-				      dev_name(link->supplier));
+			dev_err(dev, "DEFERDBG: supplier %s not ready\n",
+				dev_name(link->supplier));
 			ret = -EPROBE_DEFER;
 			break;
 		}
