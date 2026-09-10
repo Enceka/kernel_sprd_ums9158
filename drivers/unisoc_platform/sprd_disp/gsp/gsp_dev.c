@@ -651,6 +651,10 @@ int sprd_gsp_get_capability_ioctl(struct drm_device *drm_dev, void *data,
 		return -1;
 	}
 
+	if (capa->magic != CAPABILITY_MAGIC_NUMBER)
+		GSP_DEV_ERR(dev, "get capability source struct looks uninitialized: magic=0x%x (want 0x%x)\n",
+				capa->magic, CAPABILITY_MAGIC_NUMBER);
+
 	if (!access_ok((void __user *)drm_capa->cap, size))
 		GSP_DEV_ERR(dev, "get capability copy: cap=%px size=%zu fails access_ok\n",
 				drm_capa->cap, size);
