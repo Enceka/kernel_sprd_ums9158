@@ -202,9 +202,10 @@ obj-$(CONFIG_UNISOC_DISP) := sprd-drm.o
 ccflags-y += -Wno-macro-redefined -Wno-frame-larger-than
 subdir-ccflags-y += -Wno-macro-redefined -Wno-frame-larger-than
 
-# LCD bias chip (OCP2131), called from sprd_panel_prepare(). The out-of-tree
-# flow builds this as its own lcd_bias.ko; fold it into sprd-drm here.
-sprd-drm-y += lcd_bias/ocp2131.o
+# LCD bias chip (OCP2131), called from sprd_panel_prepare(). Built as its own
+# module: it has its own module_init, so listing it in sprd-drm-y would
+# duplicate init_module/cleanup_module.
+obj-m += lcd_bias/ocp2131.o
 
 # GSP: referenced by sprd_drm ioctls and the panel path. The out-of-tree flow
 # builds sprd-gsp.ko on its own, but gsp/Kbuild ends with
