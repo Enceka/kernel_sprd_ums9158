@@ -182,10 +182,17 @@ print('first-stage load list: %d modules (stock asks for %d)' % (len(order), len
 print('  stock-only, built into our kernel (=y), skipped: %d' % len(skipped_builtin))
 print('  ours but never first-stage on stock, dropped: %d %s' % (len(extra), extra[:8]))
 
-# mali_kbase has no entry in the stock list - the stock kernel loads it from
-# /vendor/lib/modules during second stage. Our build has to come from this
-# ramdisk, which is the only place we control without touching vendor.
-for n in ('sprd-gsp.ko', 'sprd-drm.ko', 'ocp2131.ko'):
+# Modules stock loads from /vendor/lib/modules during second stage, which our
+# build has to supply from this ramdisk instead (the only place we control
+# without touching vendor).
+#
+# sprd_vpu_pw_domain.ko registers the genpd provider for <&vpu_pd_top>
+# ("sprd,vpu-pd", i.e. soc:mm:power-domain@0/1/3).  dpu/dsi/gsp all hang off
+# that domain, and without a registered provider both fw_devlink and
+# genpd_dev_pm_attach() return -EPROBE_DEFER forever, so the whole display
+# stack never probes.  It has no dependency on the PMIC/clock layers, so it is
+# inserted ahead of the display modules.
+for n in ('sprd_vpu_pw_domain.ko', 'sprd-gsp.ko', 'sprd-drm.ko', 'ocp2131.ko'):
     if n in MODS and n not in seen:
         seen.add(n)
         order.append(n)
