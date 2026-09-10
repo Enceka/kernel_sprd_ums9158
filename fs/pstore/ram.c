@@ -757,6 +757,15 @@ static int ramoops_probe(struct platform_device *pdev)
 		goto fail_out;
 	}
 
+	/*
+	 * Do NOT raise console_size here. The stock kernel leaves it at the
+	 * default MIN_MEM_SIZE (4 KiB), and the console/dmesg-record offsets
+	 * inside the ramoops buffer are derived from these sizes. Changing them
+	 * makes the layout differ from the stock kernel's, so after a crash the
+	 * stock kernel that we boot to read the log would fail the header check
+	 * and wipe the buffer - losing both console-ramoops-0 and the
+	 * dmesg-ramoops-0 panic record we actually need.
+	 */
 	if (pdata->record_size && !is_power_of_2(pdata->record_size))
 		pdata->record_size = rounddown_pow_of_two(pdata->record_size);
 	if (pdata->console_size && !is_power_of_2(pdata->console_size))
