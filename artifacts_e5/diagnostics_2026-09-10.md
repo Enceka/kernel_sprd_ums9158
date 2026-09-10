@@ -181,9 +181,12 @@ watchdogd: Failed to open /dev/watchdog: No such file or directory
 init: Service 'watchdogd' (pid 271) exited with status 1
 ```
 
-`641e0000.watchdog` probe 是成功的，但 `/dev/watchdog` 没建出来。需要和原厂
-（当前设备上）`ls -Z /dev/watchdog*` / `/sys/class/watchdog/` 对比确认是配置差异
-还是驱动差异。
+**已核实，不是差异**：在当前设备上（stock 5.15.119，同一个 `ums9158_1h10` 机型）直接
+`ls /dev/watchdog* /sys/class/watchdog/` 同样是空的，`getprop init.svc.watchdogd` 也是
+`stopped`。真正的硬件看门狗是 `sprd_wdt_fiq`（FIQ 中断里自己喂狗，`dmesg` 里能看到周期性的
+`sprd wdt load value timeout =40, pretimeout =20`），完全不走标准 Linux `watchdog_device` /
+`/dev/watchdog` 接口，所以通用的 `watchdogd` 守护进程在这个机型上打不开设备、退出，是原厂
+既有行为，不是我们引入的问题。这一项可以从待办里划掉。
 
 ---
 
@@ -238,8 +241,9 @@ fastboot reboot
 ## 6. 下一步
 
 1. **GSP capability**（§4）：定位 5.15.211 上 `copy_to_user` 失败的原因 —— 这是当前
-   唯一挡住开机的问题。
-2. **`/dev/watchdog`**：与设备上的原厂系统对比确认。
+   唯一挡住开机的问题。已加诊断 patch（见 §4 内联更新），下次开机测试时看新日志。
+2. ~~`/dev/watchdog`~~：已核实，原厂同一机型上行为一致（见 §4 内联更新），不是引入的
+   问题，划掉。
 3. **补齐仓库模块（35 个）**：`sprd-kernel-modules-{video, common-camera, audio, microarray}`
    可编出 `vpu` `jpg` `sprd_camera` `sprd_cpp` `sprd_sensor` `sprd_flash_drv`
    `flash_ic_aw3641` `sprd_camsys_pw_domain` `mmdvfs` `microarray_fp` 及 audio 全套。
