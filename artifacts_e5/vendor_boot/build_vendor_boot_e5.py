@@ -185,7 +185,7 @@ print('  ours but never first-stage on stock, dropped: %d %s' % (len(extra), ext
 # mali_kbase has no entry in the stock list - the stock kernel loads it from
 # /vendor/lib/modules during second stage. Our build has to come from this
 # ramdisk, which is the only place we control without touching vendor.
-for n in ('mali_kbase.ko',):
+for n in ('sprd-gsp.ko', 'sprd-drm.ko', 'ocp2131.ko'):
     if n in MODS and n not in seen:
         seen.add(n)
         order.append(n)
