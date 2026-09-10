@@ -11,10 +11,47 @@
 #include <drm/drm_vblank.h>
 
 #include "sprd_drm.h"
+#include "sprd_dpu.h"
 #include "sprd_gem.h"
 #include "sprd_crtc.h"
+#include "sprd_dsi.h"
 #include "sprd_plane.h"
+#include "sprd_dsi_panel.h"
 #include "sprd_iommu.h"
+
+struct drm_crtc *sprd_find_crtc_from_index(struct drm_device *dev, int idx)
+{
+	struct drm_crtc *crtc;
+
+	drm_for_each_crtc(crtc, dev)
+		if (idx == crtc->index)
+			return crtc;
+
+	return NULL;
+}
+
+bool sprd_check_crtc_active_state(struct drm_device *drm_dev, int crtc_index)
+{
+	struct sprd_drm *sprd;
+	struct drm_crtc *crtc;
+
+	if (!drm_dev ||
+	    !drm_dev->registered) {
+		DRM_INFO("crtc can not be obtained when drm is not inited\n");
+		return false;
+	}
+
+	sprd = drm_dev->dev_private;
+	mutex_lock(&sprd->state_lock);
+	crtc = sprd_find_crtc_from_index(drm_dev, crtc_index);
+	if (crtc && crtc->state && crtc->state->active) {
+		mutex_unlock(&sprd->state_lock);
+		return true;
+	}
+	mutex_unlock(&sprd->state_lock);
+
+	return false;
+}
 
 int sprd_crtc_iommu_map(struct device *dev,
 				struct sprd_gem_obj *sprd_gem)
@@ -106,8 +143,11 @@ static int sprd_crtc_atomic_check(struct drm_crtc *crtc,
 				     struct drm_atomic_state *state)
 {
 	struct sprd_crtc *sprd_crtc = to_sprd_crtc(crtc);
-	/* state->crtcs->state ? old_state? new_state? */
-	struct drm_crtc_state *crtc_state = state->crtcs->state;
+	unsigned int crtc_index = drm_crtc_index(crtc);
+	struct drm_crtc_state *crtc_state = state->crtcs[crtc_index].new_state;
+
+	if (!crtc_state)
+		return 0;
 
 	if (!crtc_state->enable)
 		return 0;
@@ -191,7 +231,14 @@ static void sprd_crtc_atomic_flush(struct drm_crtc *crtc,
 
 	spin_lock_irq(&crtc->dev->event_lock);
 	if (crtc->state->event) {
-		drm_crtc_send_vblank_event(crtc, crtc->state->event);
+		/*
+		 * FIXME:
+		 * Crtc vblank is updated by dpu vsync isr handle function.
+		 * When each vsync occured, dpu isr function update vblank timestamp and count.
+		 * Just need to handle event and fence after crtc flush.
+		 * Update vsync here will cause fence timestamp be modified to other value.
+		 */
+		drm_send_event_timestamp_locked(crtc->dev, &crtc->state->event->base, 0);
 		crtc->state->event = NULL;
 	}
 	spin_unlock_irq(&crtc->dev->event_lock);
@@ -243,11 +290,13 @@ static int sprd_crtc_atomic_get_property(struct drm_crtc *drm_crtc,
 
 	DRM_DEBUG("%s() name = %s\n", __func__, property->name);
 
-	if (property == crtc->resolution_property)
+	if (property == crtc->resolution_property) {
 		*val = state->resolution_change;
-	else if (property == crtc->frame_rate_property)
+	} else if (property == crtc->frame_rate_property) {
 		*val = state->frame_rate_change;
-	else {
+	} else if (crtc->ops->atomic_get_property) {
+		return crtc->ops->atomic_get_property(crtc, crtc_state, property, val);
+	} else {
 		DRM_ERROR("property %s is invalid\n", property->name);
 		return -EINVAL;
 	}
@@ -262,16 +311,27 @@ static int sprd_crtc_atomic_set_property(struct drm_crtc *drm_crtc,
 {
 	struct sprd_crtc *crtc = to_sprd_crtc(drm_crtc);
 	struct sprd_crtc_state *state = to_sprd_crtc_state(crtc_state);
+	struct sprd_dpu *dpu = crtc->priv;
+	struct sprd_dsi *dsi = dpu->dsi;
+	struct sprd_panel *panel = container_of(dsi->panel, struct sprd_panel, base);
 
 	DRM_DEBUG("%s() name = %s, val = %llu\n",
 		  __func__, property->name, val);
 
 	if (property == crtc->resolution_property) {
 		state->resolution_change = val;
-		crtc->sr_mode_changed = val;
 	} else if (property == crtc->frame_rate_property) {
 		state->frame_rate_change = val;
-		crtc->fps_mode_changed = val;
+		if (panel->info.esd_check_en && !crtc->mode_change_pending) {
+			cancel_delayed_work_sync(&panel->esd_work);
+			panel->esd_work_pending = false;
+			crtc->mode_change_pending = true;
+			DRM_INFO("vrr going, flush current esd work and cancel ongoing work");
+		}
+	} else if (property == crtc->blend_limit_property){
+		DRM_DEBUG("do not allow change blend limit property value.\n");
+	} else if (property == crtc->vrr_enabled_property) {
+		DRM_DEBUG("do not allow change vrr enabled property value.\n");
 	} else {
 		DRM_ERROR("property %s is invalid\n", property->name);
 		return -EINVAL;
@@ -348,6 +408,7 @@ static int sprd_crtc_create_properties(struct sprd_crtc *crtc, const char *versi
 	struct drm_property *prop;
 	struct drm_property_blob *blob;
 	size_t blob_size;
+	struct drm_mode_config *config;
 
 	blob_size = strlen(version) + 1;
 
@@ -393,6 +454,17 @@ static int sprd_crtc_create_properties(struct sprd_crtc *crtc, const char *versi
 	drm_object_attach_property(&crtc->base.base, prop, 0);
 	crtc->frame_rate_property = prop;
 
+	/* create vrr enabled property */
+	prop = drm_property_create_range(crtc->base.dev, 0,
+				"vrr enabled", 0, UINT_MAX);
+	if (!prop)
+		return -ENOMEM;
+	drm_object_attach_property(&crtc->base.base, prop, 0);
+	crtc->vrr_enabled_property = prop;
+
+	config = &crtc->base.dev->mode_config;
+	drm_object_attach_property(&crtc->base.base, config->ctm_property, 0);
+
 	return 0;
 }
 
@@ -402,6 +474,7 @@ struct sprd_crtc *sprd_crtc_init(struct drm_device *drm,
 					const struct sprd_crtc_ops *ops,
 					const char *version,
 					u32 corner_size,
+					const char *name,
 					void *priv)
 {
 	struct sprd_crtc *crtc;
@@ -418,7 +491,7 @@ struct sprd_crtc *sprd_crtc_init(struct drm_device *drm,
 	crtc->planes = planes;
 
 	ret = drm_crtc_init_with_planes(drm, &crtc->base, primary, NULL,
-					&sprd_crtc_funcs, NULL);
+					&sprd_crtc_funcs, name);
 	if (ret < 0) {
 		DRM_ERROR("failed to initial crtc.\n");
 		goto err_crtc;

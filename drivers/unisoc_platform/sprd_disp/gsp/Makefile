@@ -1,15 +1,21 @@
-# SPDX-License-Identifier: GPL-2.0
+#SPDX-FileCopyrightText: 2020 Unisoc (Shanghai) Technologies Co.Ltd
+#SPDX-License-Identifier: GPL-2.0-only
 
-sprd-gsp-$(CONFIG_UNISOC_GSP) += gsp_r8p0/gsp_r8p0_core.o \
-	gsp_r9p0/gsp_r9p0_core.o \
-	gsp_coef_cal.o
+export KO_MODULE_NAME := sprd-gsp
+KO_MODULE_OUT := $(BSP_MODULES_OUT)/$(KO_MODULE_NAME)
+KO_MODULE_KBUILD := $(CURDIR)/Kbuild
 
-sprd-gsp-$(CONFIG_UNISOC_GSP) += gsp_interface/gsp_interface_sharkl5pro.o \
-	gsp_interface/gsp_interface_qogirn6pro.o
+.PHONY: modules modules_install clean
 
-sprd-gsp-$(CONFIG_UNISOC_GSP) += gsp_core.o gsp_dev.o gsp_interface.o gsp_kcfg.o \
-	gsp_layer.o gsp_sync.o gsp_sysfs.o gsp_workqueue.o
+modules:
+	@mkdir -p $(KO_MODULE_OUT) && ln -snf $(KO_MODULE_KBUILD) $(KO_MODULE_OUT)/Kbuild
+	@ln -snf $(CURDIR) $(KO_MODULE_OUT)/source
+	$(MAKE) -C $(BSP_KERNEL_PATH) M=$(KO_MODULE_OUT) src=$(CURDIR) $@
 
-obj-$(CONFIG_UNISOC_GSP) += sprd-gsp.o
-#sprd-gsp-$(CONFIG_DRM_SPRD_GSP_IPC_TRUSTY) += gsp_ipc_trusty.o
-#sprd-gsp-$(CONFIG_DRM_SPRD_GSP_DVFS) += gsp_r9p0/gsp_r9p0_dvfs.o
+modules_install:
+	$(MAKE) -C $(BSP_KERNEL_PATH) M=$(KO_MODULE_OUT) $@
+
+# Remove the out directory wholly
+clean:
+	@#$(MAKE) -C $(BSP_KERNEL_PATH) M=$(KO_MODULE_OUT) src=$(CURDIR) $@
+	rm -rf $(KO_MODULE_OUT)

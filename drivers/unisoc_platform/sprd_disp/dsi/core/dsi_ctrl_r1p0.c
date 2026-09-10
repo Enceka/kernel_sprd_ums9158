@@ -42,15 +42,16 @@ static void dsi_power_enable(struct dsi_context *ctx, int enable)
 	writel(enable, &reg->SOFT_RESET);
 }
 /**
- * Enable/disable DPI video mode
+ * Enable/disable DPI video mode & halt function
  * @param instance pointer to structure holding the DSI Host core information
- * @param enable (1) - disable (0)
+ * @param bit0 : DPI video mode enable (1) - disable (0)
+ * @param bit1 : halt function  enable (1) - disable (0)
  */
 static void dsi_video_mode(struct dsi_context *ctx)
 {
 	struct dsi_reg *reg = (struct dsi_reg *)ctx->base;
 
-	writel(0, &reg->DSI_MODE_CFG);
+	writel(0x2, &reg->DSI_MODE_CFG);
 }
 /**
  * Enable command mode (Generic interface)
@@ -283,10 +284,17 @@ static void dsi_dpi_vporch_lp_en(struct dsi_context *ctx, int enable)
 
 	vid_mode_cfg.val = readl(&reg->VID_MODE_CFG);
 
-	vid_mode_cfg.bits.lp_vact_en = enable;
-	vid_mode_cfg.bits.lp_vfp_en = enable;
-	vid_mode_cfg.bits.lp_vbp_en = enable;
-	vid_mode_cfg.bits.lp_vsa_en = enable;
+	if (ctx->video_lp_config & VIDEO_VACT_LP_EN)
+		vid_mode_cfg.bits.lp_vact_en = enable;
+
+	if (ctx->video_lp_config & VIDEO_VFP_LP_EN)
+		vid_mode_cfg.bits.lp_vfp_en = enable;
+
+	if (ctx->video_lp_config & VIDEO_VBP_LP_EN)
+		vid_mode_cfg.bits.lp_vbp_en = enable;
+
+	if (ctx->video_lp_config & VIDEO_VSA_LP_EN)
+		vid_mode_cfg.bits.lp_vsa_en = enable;
 
 	writel(vid_mode_cfg.val, &reg->VID_MODE_CFG);
 }

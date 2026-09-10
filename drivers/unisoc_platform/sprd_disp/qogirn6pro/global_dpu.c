@@ -201,6 +201,12 @@ static int dpu_clk_init(struct dpu_context *ctx)
 	if (dpu->dsi->ctx.dpi_clk_div) {
 		pr_info("DPU_CORE_CLK = %u, DPI_CLK_DIV = %d\n",
 				dpu_core_val, dpu->dsi->ctx.dpi_clk_div);
+	}  else if (ctx->cmd_dpi_mode) {
+		dpi_src_val = calc_dpi_clk_src(ctx->actual_dpi_clk);
+		pr_info("DPU_CORE_CLK = %u, DPI_CLK_SRC = %u\n",
+				dpu_core_val, dpi_src_val);
+		pr_info("dpi vm clock is %lu, dpi actual clock is %lu\n",
+				ctx->vm.pixelclock, ctx->actual_dpi_clk);
 	} else {
 		dpi_src_val = calc_dpi_clk_src(ctx->vm.pixelclock);
 		pr_info("DPU_CORE_CLK = %u, DPI_CLK_SRC = %u\n",
@@ -218,6 +224,14 @@ static int dpu_clk_init(struct dpu_context *ctx)
 		ret = clk_set_parent(clk_ctx->clk_dpu_dpi, clk_src);
 		if (ret)
 			pr_warn("set dpi clk source failed\n");
+	} else if (ctx->cmd_dpi_mode) {
+		clk_src = val_to_clk(clk_ctx, dpi_src_val);
+		ret = clk_set_parent(clk_ctx->clk_dpu_dpi, clk_src);
+		if (ret)
+			pr_warn("set dpi clk source failed\n");
+		ret = clk_set_rate(clk_ctx->clk_dpu_dpi, ctx->actual_dpi_clk);
+		if (ret)
+			pr_err("dpu update dpi clk rate failed\n");
 	} else {
 		clk_src = val_to_clk(clk_ctx, dpi_src_val);
 		ret = clk_set_parent(clk_ctx->clk_dpu_dpi, clk_src);
@@ -341,12 +355,43 @@ static int dpu_glb_parse_dt(struct dpu_context *ctx,
 	return 0;
 }
 
+int dpu_r6p0_glb_enable(struct dpu_context *ctx)
+{
+	int ret;
+
+	ret = clk_prepare_enable(clk_dpuvsp_eb);
+	if (ret) {
+		pr_err("enable clk_dpuvsp_eb failed!\n");
+		return ret;
+	}
+
+	ret = clk_prepare_enable(clk_dpuvsp_disp_eb);
+	if (ret) {
+		pr_err("enable clk_dpuvsp_disp_eb failed!\n");
+		return ret;
+	}
+
+	return ret;
+}
+
 static void dpu_glb_enable(struct dpu_context *ctx)
 {
 }
 
 static void dpu_glb_disable(struct dpu_context *ctx)
 {
+	if (!IS_ERR(vau_reset)) {
+		reset_control_assert(vau_reset);
+		udelay(10);
+		reset_control_deassert(vau_reset);
+	}
+
+	if (!IS_ERR(ctx_reset)) {
+		reset_control_assert(ctx_reset);
+		udelay(10);
+		reset_control_deassert(ctx_reset);
+	}
+
 	clk_disable_unprepare(clk_dpuvsp_disp_eb);
 	clk_disable_unprepare(clk_dpuvsp_eb);
 }

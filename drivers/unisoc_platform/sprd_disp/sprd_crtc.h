@@ -24,7 +24,6 @@
 #define BIT_DPU_INT_ERR			BIT(2)
 #define BIT_DPU_INT_EDPI_TE		BIT(3)
 #define BIT_DPU_INT_UPDATE_DONE		BIT(4)
-#define BIT_DPU_INT_VSYNC		BIT(5)
 #define BIT_DPU_INT_WB_DONE		BIT(6)
 #define BIT_DPU_INT_WB_ERR		BIT(7)
 
@@ -59,8 +58,11 @@ struct sprd_crtc {
 	void *priv;
 	bool fps_mode_changed;
 	bool sr_mode_changed;
+	bool mode_change_pending;
 	struct drm_property *resolution_property;
 	struct drm_property *frame_rate_property;
+	struct drm_property *blend_limit_property;
+	struct drm_property *vrr_enabled_property;
 };
 
 struct sprd_crtc_ops {
@@ -76,14 +78,18 @@ struct sprd_crtc_ops {
 	void (*atomic_begin)(struct sprd_crtc *crtc);
 	void (*atomic_flush)(struct sprd_crtc *crtc);
 
-	void (*prepare_fb)(struct sprd_crtc *crtc,
+	int (*prepare_fb)(struct sprd_crtc *crtc,
 			  struct drm_plane_state *new_state);
 	void (*cleanup_fb)(struct sprd_crtc *crtc,
 			   struct drm_plane_state *old_state);
 	void (*atomic_update)(struct sprd_crtc *crtc,
-			     struct drm_plane *plane);
+			struct drm_plane *plane);
+	int (*atomic_get_property)(struct sprd_crtc *crtc,
+				const struct drm_crtc_state *state,
+				struct drm_property *property, uint64_t *val);
 };
 
+struct drm_crtc *sprd_find_crtc_from_index(struct drm_device *dev, int idx);
 int sprd_crtc_iommu_map(struct device *dev, struct sprd_gem_obj *sprd_gem);
 void sprd_crtc_iommu_unmap(struct device *dev, struct sprd_gem_obj *sprd_gem);
 void sprd_crtc_wait_last_commit_complete(struct drm_crtc *crtc);
@@ -93,8 +99,10 @@ struct sprd_crtc *sprd_crtc_init(struct drm_device *drm,
 					const struct sprd_crtc_ops *ops,
 					const char *version,
 					u32 corner_size,
+					const char *name,
 					void *priv);
 int sprd_drm_set_possible_crtcs(struct drm_encoder *encoder,
 		enum sprd_crtc_output_type out_type);
+bool sprd_check_crtc_active_state(struct drm_device *drm_dev, int crtc_index);
 
 #endif /* _SPRD_CRTC_H_ */

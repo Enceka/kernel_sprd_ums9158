@@ -3,6 +3,7 @@
  * Copyright (C) 2020 Unisoc Inc.
  */
 
+#include <drm/drm_vblank.h>
 #include <linux/delay.h>
 #include <linux/dma-buf.h>
 #include <linux/gfp.h>
@@ -224,6 +225,7 @@ static u32 check_mmu_isr(struct dpu_context *ctx, u32 reg_val)
 	u32 val = reg_val & mmu_mask;
 
 	if (val) {
+		ctx->int_cnt.int_cnt_dpu_int_mmu++;
 		pr_err("--- iommu interrupt err: 0x%04x ---\n", val);
 
 		pr_err("iommu invalid read error, addr: 0x%08x\n",
@@ -247,6 +249,8 @@ static u32 check_mmu_isr(struct dpu_context *ctx, u32 reg_val)
 
 static u32 dpu_isr(struct dpu_context *ctx)
 {
+	struct sprd_dpu *dpu =
+		(struct sprd_dpu *)container_of(ctx, struct sprd_dpu, ctx);
 	u32 reg_val, int_mask = 0;
 	//u32 mmu_reg_val, mmu_int_mask = 0;
 
@@ -259,27 +263,44 @@ static u32 dpu_isr(struct dpu_context *ctx)
 
 	/* dpu update done isr */
 	if (reg_val & BIT_DPU_INT_UPDATE_DONE) {
+		ctx->int_cnt.int_cnt_dpu_all_update_done++;
 		ctx->evt_update = true;
 		wake_up_interruptible_all(&ctx->wait_queue);
 	}
 
 	/* dpu vsync isr */
-	//if (reg_val & BIT_DPU_INT_VSYNC) {
+	if ((reg_val & BIT_DPU_INT_VSYNC) && ctx->enabled) {
+		ctx->int_cnt.int_cnt_vsync++;
+		drm_crtc_handle_vblank(&dpu->crtc->base);
+
 		/* write back feature */
 	//	if ((ctx->vsync_count == ctx->max_vsync_count) && ctx->wb_en)
 	//		schedule_work(&ctx->wb_work);
 
 	//	ctx->vsync_count++;
-	//}
+	}
+
+	if (reg_val & BIT_DPU_INT_TE) {
+		ctx->int_cnt.int_cnt_te++;
+		if (ctx->te_check_en) {
+			ctx->evt_te = true;
+			wake_up_interruptible_all(&ctx->te_wq);
+		}
+
+		if (ctx->if_type == SPRD_DPU_IF_EDPI)
+			drm_crtc_handle_vblank(&dpu->crtc->base);
+	}
 
 	/* dpu stop done isr */
 	if (reg_val & BIT_DPU_INT_DONE) {
+		ctx->int_cnt.int_cnt_dpu_int_done++;
 		ctx->evt_stop = true;
 		wake_up_interruptible_all(&ctx->wait_queue);
 	}
 
 	/* dpu write back done isr */
 	if (reg_val & BIT_DPU_INT_WB_DONE) {
+		ctx->int_cnt.int_cnt_dpu_int_wb_done++;
 		/*
 		 * The write back is a time-consuming operation. If there is a
 		 * flip occurs before write back done, the write back buffer is
@@ -296,6 +317,7 @@ static u32 dpu_isr(struct dpu_context *ctx)
 
 	/* dpu write back error isr */
 	if (reg_val & BIT_DPU_INT_WB_ERR) {
+		ctx->int_cnt.int_cnt_dpu_int_wb_err++;
 		pr_err("dpu write back fail\n");
 		/*give a new chance to write back*/
 		ctx->wb_en = true;
@@ -304,12 +326,14 @@ static u32 dpu_isr(struct dpu_context *ctx)
 
 	/* dpu afbc payload error isr */
 	if (reg_val & BIT_DPU_INT_FBC_PLD_ERR) {
+		ctx->int_cnt.int_cnt_dpu_int_fbc_pld_err++;
 		int_mask |= BIT_DPU_INT_FBC_PLD_ERR;
 		pr_err("dpu afbc payload error\n");
 	}
 
 	/* dpu afbc header error isr */
 	if (reg_val & BIT_DPU_INT_FBC_HDR_ERR) {
+		ctx->int_cnt.int_cnt_dpu_int_fbc_hdr_err++;
 		int_mask |= BIT_DPU_INT_FBC_HDR_ERR;
 		pr_err("dpu afbc header error\n");
 	}
@@ -732,6 +756,12 @@ static void dpu_layer(struct dpu_context *ctx,
 			hwlayer->index), hwlayer->alpha);
 
 	info = drm_format_info(hwlayer->format);
+	if (IS_ERR_OR_NULL(info))
+	{
+		pr_warn("drm format info is invalid.\n");
+		return;
+	}
+
 	if (hwlayer->planes == 3) {
 		/* UV pitch is 1/2 of Y pitch*/
 		pitch = (hwlayer->pitch[0] / info->cpp[0]) |
@@ -893,9 +923,10 @@ static void disable_vsync(struct dpu_context *ctx)
 	//DPU_REG_CLR(ctx->base + REG_DPU_INT_EN, BIT_DPU_INT_VSYNC);
 }
 
-static int dpu_context_init(struct dpu_context *ctx, struct device_node *np)
+static int dpu_context_init(struct dpu_context *ctx, struct device *dev)
 {
 	struct device_node *qos_np;
+	struct device_node *np = dev->of_node;
 	int ret;
 
 	qos_np = of_parse_phandle(np, "sprd,qos", 0);

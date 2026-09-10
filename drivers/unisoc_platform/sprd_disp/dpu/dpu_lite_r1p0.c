@@ -3,6 +3,7 @@
  * Copyright (C) 2020 Unisoc Inc.
  */
 
+#include <drm/drm_vblank.h>
 #include <linux/delay.h>
 #include <linux/io.h>
 #include <linux/wait.h>
@@ -120,7 +121,7 @@
 #define BIT_DPU_INT_ERR			BIT(2)
 #define BIT_DPU_INT_EDPI_TE		BIT(3)
 #define BIT_DPU_INT_UPDATE_DONE		BIT(4)
-#define BIT_DPU_INT_DPI_VSYNC		BIT(5)
+#define BIT_DPU_INT_VSYNC		BIT(5)
 #define BIT_DPU_INT_WB_DONE		BIT(6)
 #define BIT_DPU_INT_WB_FAIL		BIT(7)
 #define BIT_DPU_INT_MMU_VAOR_RD		BIT(16)
@@ -142,7 +143,7 @@
 
 static bool panel_ready = true;
 
-static int boot_charging;
+static bool dpu_mode_check;
 
 static void dpu_clean_all(struct dpu_context *ctx);
 static void dpu_layer(struct dpu_context *ctx,
@@ -165,10 +166,10 @@ static bool dpu_check_raw_int(struct dpu_context *ctx, u32 mask)
 	return false;
 }
 
-static void dpu_charger_mode(void)
+static void dpu_mode_change(void)
 {
 	struct device_node *cmdline_node;
-	const char *cmdline, *mode;
+	const char *cmdline, *charge_mode, *autotest_mode, *recovery_mode;
 	int ret;
 
 	cmdline_node = of_find_node_by_path("/chosen");
@@ -179,17 +180,21 @@ static void dpu_charger_mode(void)
 		return;
 	}
 
-	mode = strstr(cmdline, "androidboot.mode=charger");
+	charge_mode = strstr(cmdline, "sprdboot.mode=charger");
+	autotest_mode = strstr(cmdline, "sprdboot.mode=autotest");
+	recovery_mode = strstr(cmdline, "sprdboot.mode=recovery");
 
-	if (mode)
-		boot_charging = 1;
+	if (charge_mode || autotest_mode || recovery_mode)
+		dpu_mode_check = true;
 	else
-		boot_charging = 0;
+		dpu_mode_check = false;
 
 }
 
 static u32 dpu_isr(struct dpu_context *ctx)
 {
+	struct sprd_dpu *dpu =
+		(struct sprd_dpu *)container_of(ctx, struct sprd_dpu, ctx);
 	u32 reg_val, int_mask = 0;
 
 	reg_val = DPU_REG_RD(ctx->base + REG_DPU_INT_STS);
@@ -198,14 +203,32 @@ static u32 dpu_isr(struct dpu_context *ctx)
 	if (reg_val & BIT_DPU_INT_ERR)
 		int_mask |= BIT_DPU_INT_ERR;
 
+	if (reg_val & BIT_DPU_INT_VSYNC) {
+		ctx->int_cnt.int_cnt_vsync++;
+		drm_crtc_handle_vblank(&dpu->crtc->base);
+	}
+
+	if (reg_val & BIT_DPU_INT_TE) {
+		ctx->int_cnt.int_cnt_te++;
+		if (ctx->te_check_en) {
+			ctx->evt_te = true;
+			wake_up_interruptible_all(&ctx->te_wq);
+		}
+
+		if (ctx->if_type == SPRD_DPU_IF_EDPI)
+			drm_crtc_handle_vblank(&dpu->crtc->base);
+	}
+
 	/* dpu update done isr */
 	if (reg_val & BIT_DPU_INT_UPDATE_DONE) {
+		ctx->int_cnt.int_cnt_dpu_all_update_done++;
 		ctx->evt_update = true;
 		wake_up_interruptible_all(&ctx->wait_queue);
 	}
 
 	/* dpu stop done isr */
 	if (reg_val & BIT_DPU_INT_DONE) {
+		ctx->int_cnt.int_cnt_dpu_int_done++;
 		ctx->evt_stop = true;
 		wake_up_interruptible_all(&ctx->wait_queue);
 	}
@@ -329,7 +352,7 @@ static int dpu_init(struct dpu_context *ctx)
 
 	DPU_REG_WR(ctx->base + REG_DPU_INT_CLR, 0xffff);
 
-	dpu_charger_mode();
+	dpu_mode_change();
 
 	return 0;
 }
@@ -522,7 +545,7 @@ static void dpu_layer(struct dpu_context *ctx,
 			       i, hwlayer->addr[i]);
 		/* for poweroff charging , iommu not enabled,
 		   sharkle DPU is direct connect with DDRC, so memory addr need remove offset */
-		if (boot_charging && (hwlayer->addr[i] >= DPU_MEM_DDRC_ADDR_OFFSET)) {
+		if (dpu_mode_check && (hwlayer->addr[i] >= DPU_MEM_DDRC_ADDR_OFFSET)) {
 			hwlayer->addr[i] -= DPU_MEM_DDRC_ADDR_OFFSET;
 		}
 		DPU_REG_WR(ctx->base + DPU_LAY_PLANE_ADDR(REG_LAY_BASE_ADDR,
@@ -539,6 +562,12 @@ static void dpu_layer(struct dpu_context *ctx,
 		   hwlayer->index), hwlayer->alpha);
 
 	info = drm_format_info(hwlayer->format);
+	if (IS_ERR_OR_NULL(info))
+	{
+		pr_warn("drm format info is invalid.\n");
+		return;
+	}
+
 	pitch = hwlayer->pitch[0] / info->cpp[0];
 	DPU_REG_WR(ctx->base + DPU_LAY_REG(REG_LAY_PITCH,
 		   hwlayer->index), pitch);
@@ -641,7 +670,7 @@ static void dpu_dpi_init(struct dpu_context *ctx)
 		/* enable dpu DONE  INT */
 		int_mask |= BIT_DPU_INT_DONE;
 		/* enable dpu dpi vsync */
-		int_mask |= BIT_DPU_INT_DPI_VSYNC;
+		int_mask |= BIT_DPU_INT_VSYNC;
 		/* enable dpu TE INT */
 		int_mask |= BIT_DPU_INT_TE;
 		/* enable underflow err INT */
@@ -684,15 +713,15 @@ static void dpu_dpi_init(struct dpu_context *ctx)
 
 static void enable_vsync(struct dpu_context *ctx)
 {
-	DPU_REG_SET(ctx->base + REG_DPU_INT_EN, BIT_DPU_INT_DPI_VSYNC);
+	DPU_REG_SET(ctx->base + REG_DPU_INT_EN, BIT_DPU_INT_VSYNC);
 }
 
 static void disable_vsync(struct dpu_context *ctx)
 {
-	DPU_REG_CLR(ctx->base + REG_DPU_INT_EN, BIT_DPU_INT_DPI_VSYNC);
+	DPU_REG_CLR(ctx->base + REG_DPU_INT_EN, BIT_DPU_INT_VSYNC);
 }
 
-static int dpu_context_init(struct dpu_context *ctx, struct device_node *np)
+static int dpu_context_init(struct dpu_context *ctx, struct device *dev)
 {
 	ctx->base_offset[0] = 0x0;
 	ctx->base_offset[1] = DPU_MAX_REG_OFFSET / 4;

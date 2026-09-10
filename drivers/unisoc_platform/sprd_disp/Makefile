@@ -1,76 +1,212 @@
-# SPDX-License-Identifier: GPL-2.0
+BSP_MODULE_DISP_VERSION ?= ums9621
 
-ccflags-y := -I $(srctree)/$(src)
-subdir-ccflags-y += -I $(srctree)/$(src)/../../../devfreq/apsys/
+#SPDX-FileCopyrightText: 2020 Unisoc (Shanghai) Technologies Co.Ltd
+#SPDX-License-Identifier: GPL-2.0-only
+#
+# Configurations
+#
+ifeq ($(BSP_MODULE_DISP_VERSION),sp7731e)
+CONFIG_UNISOC_DISP := m
+CONFIG_DRM_SPRD_DPU0 := y
+CONFIG_DRM_SPRD_DSI := y
+CONFIG_DRM_SPRD_DUMMY := n
+CONFIG_DRM_SPRD_WB_DEBUG := n
+CONFIG_UNISOC_GSP := m
+endif
 
+ifeq ($(BSP_MODULE_DISP_VERSION),sp9832e)
+CONFIG_UNISOC_DISP := m
+CONFIG_DRM_SPRD_DPU0 := y
+CONFIG_DRM_SPRD_DSI := y
+CONFIG_DRM_SPRD_DUMMY := n
+CONFIG_DRM_SPRD_WB_DEBUG := n
+CONFIG_UNISOC_GSP := m
+endif
+
+ifeq ($(BSP_MODULE_DISP_VERSION),s9863a)
+CONFIG_UNISOC_DISP := m
+CONFIG_DRM_SPRD_DPU0 := y
+CONFIG_DRM_SPRD_DSI := y
+CONFIG_DRM_SPRD_DUMMY := n
+CONFIG_DRM_SPRD_WB_DEBUG := n
+CONFIG_UNISOC_GSP := m
+endif
+
+ifeq ($(BSP_MODULE_DISP_VERSION),ums312)
+CONFIG_UNISOC_DISP := m
+CONFIG_DRM_SPRD_DPU0 := y
+CONFIG_DRM_SPRD_DSI := y
+CONFIG_DRM_SPRD_DUMMY := n
+CONFIG_DRM_SPRD_WB_DEBUG := n
+CONFIG_UNISOC_GSP := m
+endif
+
+ifeq ($(BSP_MODULE_DISP_VERSION),ums512)
+CONFIG_UNISOC_DISP := m
+CONFIG_DRM_SPRD_DPU0 := y
+CONFIG_DRM_SPRD_DSI := y
+CONFIG_DRM_SPRD_DUMMY := n
+CONFIG_DRM_SPRD_WB_DEBUG := n
+CONFIG_UNISOC_GSP := m
+endif
+
+ifeq ($(BSP_MODULE_DISP_VERSION),ums9230)
+CONFIG_UNISOC_DISP := m
+CONFIG_DRM_SPRD_DPU0 := y
+CONFIG_DRM_SPRD_DSI := y
+CONFIG_DRM_SPRD_DUMMY := n
+CONFIG_DRM_SPRD_WB_DEBUG := n
+CONFIG_UNISOC_GSP := m
+CONFIG_DRM_SPRD_UMB9230S := y
+endif
+
+ifeq ($(BSP_MODULE_DISP_VERSION),ums9610)
+CONFIG_UNISOC_DISP := m
+CONFIG_DRM_SPRD_DPU0 := y
+CONFIG_DRM_SPRD_DSI := y
+CONFIG_DRM_SPRD_DUMMY := n
+CONFIG_DRM_SPRD_WB_DEBUG := n
+CONFIG_UNISOC_GSP := m
+endif
+
+ifeq ($(BSP_MODULE_DISP_VERSION),ums9621)
+# In-tree build: leave CONFIG_UNISOC_DISP / CONFIG_UNISOC_GSP at their
+# Kconfig values (=y) instead of forcing modules like the out-of-tree flow.
+endif
+
+ifeq ($(BSP_MODULE_DISP_VERSION),ums9620)
+CONFIG_UNISOC_DISP := m
+CONFIG_DRM_SPRD_DPU0 := y
+CONFIG_DRM_SPRD_DP := y
+CONFIG_DRM_SPRD_DPU1 := y
+CONFIG_DRM_SPRD_DSI := y
+CONFIG_DRM_SPRD_DUMMY := n
+CONFIG_DRM_SPRD_WB_DEBUG := n
+CONFIG_UNISOC_GSP := m
+endif
+
+
+#
+# Source List
+#
 sprd-drm-y := \
+	disp_lib.o \
 	sprd_drm.o \
+	sprd_dsc.o \
 	sprd_gem.o \
-	sprd_crtc.o \
-	sprd_plane.o \
-	disp_lib.o
+	sprd_plane.o
 
-sprd-drm-$(CONFIG_TRUSTY_VIRTIO_IPC) += disp_trusty.o
+INCLUDE_SUBDIR = \
+	$(src)/pike2/Kbuild \
+	$(src)/qogirl6/Kbuild \
+	$(src)/qogirn6pro/Kbuild \
+	$(src)/qogirn6lite/Kbuild \
+	$(src)/sharkl3/Kbuild \
+	$(src)/sharkl5/Kbuild \
+	$(src)/sharkl5pro/Kbuild \
+	$(src)/sharkle/Kbuild \
 
-sprd-drm-$(CONFIG_DRM_SPRD_DUMMY) += \
-	dummy/dummy_crtc.o \
-	dummy/dummy_connector.o
+#
+# Build Options
+#
+ccflags-y := \
+	-I$(srctree)/include/linux \
+	-I$(srctree)/drivers/staging/android \
+	-I$(src)
 
-sprd-drm-$(CONFIG_DRM_SPRD_DPU0) += \
-	sprd_dpu.o \
-	sprd_bl.o \
-	sprd_corner.o \
-	dpu/dpu_lite_r1p0.o \
-	dpu/dpu_lite_r2p0.o \
-	dpu/dpu_r2p0.o \
-	dpu/dpu_r4p0.o \
-	dpu/dpu_r5p0.o \
-	dpu/dpu_r6p0.o
+subdir-ccflags-y += -I$(srctree)/drivers/devfreq/apsys/
 
-sprd-drm-$(CONFIG_DRM_SPRD_DSI) += \
-	sprd_dsi.o \
-	sprd_dphy.o \
-	sprd_dsi_panel.o \
-	dsi/sprd_dsi_api.o \
-	dsi/core/dsi_ctrl_r1p0.o \
-	dsi/core/dsi_ctrl_r1p0_ppi.o \
-	dphy/sprd_dphy_api.o \
-	dphy/pll/megacores_sharkle.o \
-	dphy/pll/megacores_sharkl5.o
+#
+# Conditional Compilation
+#
+ifneq ($(CONFIG_UNISOC_DISP),n)
+    ccflags-y += -DCONFIG_UNISOC_DISP=$(CONFIG_UNISOC_DISP)
+endif
 
-sprd-drm-y += \
-	pike2/global_dpu.o \
-	pike2/global_dsi.o \
-	pike2/global_dphy.o \
-	sharkl5/global_dispc.o \
-	sharkl5/global_dsi.o \
-	sharkl5/global_dphy.o \
-	sharkle/global_dpu.o \
-	sharkle/global_dsi.o \
-	sharkle/global_dphy.o \
-	sharkl3/global_dispc.o \
-	sharkl3/global_dsi.o \
-	sharkl3/global_dphy.o \
-	sharkl5pro/global_dpu.o \
-	sharkl5pro/global_dsi.o \
-	sharkl5pro/global_dphy.o \
-	qogirl6/global_dpu.o \
-	qogirl6/global_dsi.o \
-	qogirl6/global_dphy.o \
-	qogirn6pro/global_dpu.o \
-	qogirn6pro/global_dsi.o \
-	qogirn6pro/global_dphy.o
+ifeq ($(CONFIG_DRM_SPRD_DPU0),y)
+	sprd-drm-y += \
+		sprd_crtc.o \
+		sprd_dpu.o \
+		sprd_bl.o \
+		sprd_corner.o
+	INCLUDE_SUBDIR += \
+		$(src)/dpu/Kbuild \
+		$(src)/sysfs/Kbuild
+    ccflags-y += -DCONFIG_DRM_SPRD_DPU0=$(CONFIG_DRM_SPRD_DPU0)
+endif
 
-sprd-drm-y += \
-	sysfs/sysfs_class.o \
-	sysfs/sysfs_dpu.o \
-	sysfs/sysfs_dphy.o \
-	sysfs/sysfs_dsi.o \
-	sysfs/sysfs_panel.o \
-	sysfs/sysfs_backlight.o
+ifeq ($(CONFIG_DRM_SPRD_DP),y)
+	sprd-drm-y += \
+		sprd_dp.o \
+		qogirn6pro/global_dp.o
+	INCLUDE_SUBDIR += $(src)/dp/Kbuild
+    ccflags-y += -DCONFIG_DRM_SPRD_DP=$(CONFIG_DRM_SPRD_DP)
+endif
 
-obj-$(CONFIG_UNISOC_DISP) += sprd-drm.o
+ifeq ($(CONFIG_DRM_SPRD_DPU1),y)
+	sprd-drm-y += \
+		sprd_dpu1.o \
+		dpu/dpu_lite_r3p0.o \
+		qogirn6pro/global_dpu1.o
+    ccflags-y += -DCONFIG_DRM_SPRD_DPU1=$(CONFIG_DRM_SPRD_DPU1)
+endif
 
+ifeq ($(CONFIG_DRM_SPRD_DSI),y)
+	sprd-drm-y += \
+		sprd_dsi.o \
+		sprd_dphy.o \
+		sprd_dsi_panel.o
+	INCLUDE_SUBDIR += \
+		$(src)/dphy/Kbuild \
+		$(src)/dsi/Kbuild
+    ccflags-y += -DCONFIG_DRM_SPRD_DSI=$(CONFIG_DRM_SPRD_DSI)
+endif
+
+ifeq ($(CONFIG_DRM_SPRD_UMB9230S),y)
+    INCLUDE_SUBDIR += $(src)/umb9230s/Kbuild
+    ccflags-y += -DCONFIG_DRM_SPRD_UMB9230S=$(CONFIG_DRM_SPRD_UMB9230S)
+endif
+
+ifeq ($(CONFIG_DRM_SPRD_DUMMY),y)
+    INCLUDE_SUBDIR += $(src)/dummy/Kbuild
+    ccflags-y += -DCONFIG_DRM_SPRD_DUMMY=$(CONFIG_DRM_SPRD_DUMMY)
+endif
+
+ifeq ($(CONFIG_DRM_SPRD_WB_DEBUG),y)
+ifeq ($(TARGET_BUILD_VARIANT),userdebug)
+    ccflags-y += -DCONFIG_DRM_SPRD_WB_DEBUG=$(CONFIG_DRM_SPRD_WB_DEBUG)
+endif
+endif
+
+ifneq ($(CONFIG_UNISOC_GSP),n)
+    ccflags-y += -DCONFIG_UNISOC_GSP=$(CONFIG_UNISOC_GSP)
+endif
+
+ifneq ($(CONFIG_TRUSTY_VIRTIO_IPC),n)
+    sprd-drm-y += disp_trusty.o
+endif
+
+ifeq ($(CONFIG_COMPAT),y)
+    sprd-drm-y += sprd_ioc32.o
+endif
+
+include $(INCLUDE_SUBDIR)
+
+#
+# Final Objects
+#
+obj-$(CONFIG_UNISOC_DISP) := sprd-drm.o
+
+# 5.15.211 backports the generic MIN/MAX/in_range macros; this driver
+# predates them and defines its own versions of the same names.
+ccflags-y += -Wno-macro-redefined -Wno-frame-larger-than
+subdir-ccflags-y += -Wno-macro-redefined -Wno-frame-larger-than
+
+# LCD bias chip (OCP2131), called from sprd_panel_prepare(). The out-of-tree
+# flow builds this as its own lcd_bias.ko; fold it into sprd-drm here.
+sprd-drm-y += lcd_bias/ocp2131.o
+
+# GSP: referenced by sprd_drm ioctls and the panel path. The out-of-tree flow
+# builds sprd-gsp.ko on its own, but gsp/Kbuild ends with
+# "obj-$(CONFIG_UNISOC_GSP) := sprd-gsp.o", so it builds in-tree once wired up.
 obj-$(CONFIG_UNISOC_GSP) += gsp/
-
-#sprd-drm-$(CONFIG_COMPAT) += sprd_ioc32.o

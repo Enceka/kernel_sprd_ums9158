@@ -7,6 +7,8 @@
 
 #include "sprd_dsi_hal.h"
 
+#define BYTE_PER_PIXEL_RGB888 3
+
 static int dsi_wait_tx_payload_fifo_empty(struct sprd_dsi *dsi)
 {
 	int timeout;
@@ -263,6 +265,7 @@ int sprd_dsi_dpi_video(struct sprd_dsi *dsi)
 	u32 chunks = 0;
 	u32 bytes_left = 0;
 	u32 chunk_overhead;
+	u32 dual_dsi_para;
 	const u8 pkt_header = 6;
 	u8 coding;
 	int div;
@@ -270,8 +273,16 @@ int sprd_dsi_dpi_video(struct sprd_dsi *dsi)
 	struct dsi_context *ctx = &dsi->ctx;
 	struct videomode *vm = &dsi->ctx.vm;
 
+	if (dsi->dsi_master)
+		vm = &dsi->dsi_master->ctx.vm;
+	else
+		vm = &dsi->ctx.vm;
+
 	coding = fmt_to_coding(ctx->format);
 	video_size = round_video_size(coding, vm->hactive);
+	if (dsi->dual_dsi_en)
+		video_size = video_size >> 1;
+
 	Bpp_x100 = calc_bytes_per_pixel_x100(coding);
 	video_size_step = calc_video_size_step(coding);
 	ratio_x1000 = ctx->byte_clk * 1000 / (vm->pixelclock / 1000);
@@ -282,10 +293,16 @@ int sprd_dsi_dpi_video(struct sprd_dsi *dsi)
 	dsi_hal_dpi_frame_ack_en(dsi, ctx->frame_ack_en);
 	dsi_hal_dpi_color_coding(dsi, coding);
 	dsi_hal_dpi_video_burst_mode(dsi, ctx->burst_mode);
-	dsi_hal_dpi_sig_delay(dsi, 95 * hline * ratio_x1000 / 100000);
-	dsi_hal_dpi_hline_time(dsi, hline * ratio_x1000 / 1000);
-	dsi_hal_dpi_hsync_time(dsi, vm->hsync_len * ratio_x1000 / 1000);
-	dsi_hal_dpi_hbp_time(dsi, vm->hback_porch * ratio_x1000 / 1000);
+
+	if (dsi->dual_dsi_en)
+		dual_dsi_para = 2;
+	else
+		dual_dsi_para = 1;
+
+	dsi_hal_dpi_sig_delay(dsi, 95 * hline * ratio_x1000 / (100000 * dual_dsi_para));
+	dsi_hal_dpi_hline_time(dsi, hline * ratio_x1000 / (1000 * dual_dsi_para));
+	dsi_hal_dpi_hsync_time(dsi, vm->hsync_len * ratio_x1000 / (1000 * dual_dsi_para));
+	dsi_hal_dpi_hbp_time(dsi, vm->hback_porch * ratio_x1000 / (1000 * dual_dsi_para));
 	dsi_hal_dpi_vact(dsi, vm->vactive);
 	dsi_hal_dpi_vfp(dsi, vm->vfront_porch);
 	dsi_hal_dpi_vbp(dsi, vm->vback_porch);
@@ -392,10 +409,18 @@ void sprd_dsi_edpi_video(struct sprd_dsi *dsi)
 	const u32 fifo_depth = 1096;
 	const u32 word_length = 4;
 	struct dsi_context *ctx = &dsi->ctx;
-	u32 hactive = ctx->vm.hactive;
+	u32 hactive;
 	u32 Bpp_x100;
 	u32 max_fifo_len;
+	u32 cur_pkt_len, dcs_wm_pkt_size;
 	u8 coding;
+	int i, remainder;
+	bool find_pkt_size = false;
+
+	if (dsi->dsi_master)
+		hactive = dsi->dsi_master->ctx.vm.hactive;
+	else
+		hactive = dsi->ctx.vm.hactive;
 
 	coding = fmt_to_coding(ctx->format);
 	Bpp_x100 = calc_bytes_per_pixel_x100(coding);
@@ -406,9 +431,26 @@ void sprd_dsi_edpi_video(struct sprd_dsi *dsi)
 	dsi_hal_tear_effect_ack_en(dsi, ctx->te_ack_en);
 
 	if (max_fifo_len > hactive)
-		dsi_hal_edpi_max_pkt_size(dsi, hactive);
+		cur_pkt_len = hactive;
 	else
-		dsi_hal_edpi_max_pkt_size(dsi, max_fifo_len);
+		cur_pkt_len = max_fifo_len;
+
+	for (i = 1; i <= cur_pkt_len; i++) {
+		if (cur_pkt_len % i != 0)
+			continue;
+
+		dcs_wm_pkt_size = cur_pkt_len / i;
+		remainder = (dcs_wm_pkt_size * BYTE_PER_PIXEL_RGB888 + 1) % 8;
+		if (remainder == 0 || remainder > 4) {
+			find_pkt_size = true;
+			break;
+		}
+	}
+
+	if ((i == cur_pkt_len && !find_pkt_size) || (ctx->format == SPRD_MIPI_DSI_FMT_DSC))
+		dsi_hal_edpi_max_pkt_size(dsi, cur_pkt_len);
+	else
+		dsi_hal_edpi_max_pkt_size(dsi, dcs_wm_pkt_size);
 
 	dsi_hal_int0_mask(dsi, ctx->int0_mask);
 	dsi_hal_int1_mask(dsi, ctx->int1_mask);
@@ -536,6 +578,16 @@ int sprd_dsi_rd_pkt(struct sprd_dsi *dsi, u8 vc, u8 type,
 
 void sprd_dsi_set_work_mode(struct sprd_dsi *dsi, u8 mode)
 {
+	/*
+	 * FIXME:
+	 * When the last mipi cmd does not contain delay time,
+	 * dsi may change work mode during mipi cmd send procedure and it may cause misdisplay.
+	 * So we force dsi wait cmd and payload empty before change workmode.
+	 */
+	if (!(dsi_wait_tx_cmd_fifo_empty(dsi) &&
+	      dsi_wait_tx_payload_fifo_empty(dsi)))
+		pr_err("tx cmd fifo or payload fifo is not empty\n");
+
 	if (mode == DSI_MODE_CMD)
 		dsi_hal_cmd_mode(dsi);
 	else

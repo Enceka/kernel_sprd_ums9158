@@ -22,11 +22,14 @@ static int sprd_plane_prepare_fb(struct drm_plane *plane,
 	struct drm_plane_state *curr_state = plane->state;
 	struct sprd_crtc *crtc = to_sprd_crtc(new_state->crtc);
 
-	if ((curr_state->fb == new_state->fb) || !new_state->fb)
+	if (!new_state->fb)
+		return 0;
+
+	if (curr_state->fb && (curr_state->fb == new_state->fb))
 		return 0;
 
 	if (crtc->ops->prepare_fb)
-		crtc->ops->prepare_fb(crtc, new_state);
+		return crtc->ops->prepare_fb(crtc, new_state);
 
 	return 0;
 }
@@ -352,7 +355,8 @@ static int sprd_plane_create_properties(struct sprd_plane *plane, int index)
 }
 
 struct sprd_plane *sprd_plane_init(struct drm_device *drm,
-					struct sprd_crtc_capability *cap)
+					struct sprd_crtc_capability *cap,
+					uint32_t possible_crtcs)
 {
 	struct sprd_plane *planes = NULL;
 	int err, i;
@@ -364,8 +368,7 @@ struct sprd_plane *sprd_plane_init(struct drm_device *drm,
 
 	for (i = 0; i < cap->max_layers; i++) {
 		type = i==0 ? DRM_PLANE_TYPE_PRIMARY : DRM_PLANE_TYPE_OVERLAY;
-		err = drm_universal_plane_init(drm, &planes[i].base,
-					       1 << drm->mode_config.num_crtc,
+		err = drm_universal_plane_init(drm, &planes[i].base, possible_crtcs,
 					       &sprd_plane_funcs, cap->fmts_ptr,
 					       cap->fmts_cnt, NULL, type, NULL);
 		if (err) {
