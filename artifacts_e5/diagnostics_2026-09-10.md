@@ -174,6 +174,43 @@ HAL 的调用序是「先 92 后 208」（原厂日志里 `92,208,92,208` 交替
 > - `uncopied` 明显小于 `size`（拷了一部分才失败）→ 更像是拷贝中途跨页时撞到了一个没映
 >   射的页，指向该用户 buffer 本身跨越了一个洞。
 
+> **同日晚些时候，静态读代码排查了一轮，排除了几个怀疑对象**（还是没找到确凿根因，
+> 记录下来避免下次重新怀疑一遍）：
+>
+> - **不是 32/64 位 ioctl 兼容问题**：`sprd_ioc32.c` 里确实有一条 32 位 compat 路径
+>   （`struct drm_gsp_capability32` 用 `u32 cap` + `compat_ptr()` 正确转换指针），且
+>   `.compat_ioctl = sprd_compat_ioctl` 也确实挂在 `sprd_drm_fops` 上——但实测
+>   `/vendor/bin/hw/android.hardware.graphics.composer@2.4-service` 是
+>   `ELF64 arm64`，走的是原生 64 位 ioctl 路径，根本不经过这条 compat 代码，这条怀疑
+>   可以排除。
+> - **不是 `struct gsp_capability`/`struct gsp_r9p0_capability` 的类型转换问题**：
+>   `gsp_r9p0_capability { struct gsp_capability common; char board[32]; ... }`，
+>   `common` 确实是第一个成员，`(struct gsp_capability *)core->capa` 这种转换是合法的
+>   C（base-struct-as-first-member 惯用法），`sizeof(struct gsp_capability)` 精确算出
+>   来正好是 92 字节，跟 HAL 第一次请求的 `size:92` 完全对上，逻辑自洽。
+> - **不是 uapi 头文件重复定义冲突**：`include/drm/gsp_cfg.h`（非 uapi）内部会
+>   `#include <uapi/drm/gsp_cfg.h>`，全树只有一份 `struct gsp_capability` 定义，
+>   `103672a89` 也没有改过 `include/uapi/drm/sprd_drm_gsp.h` 里 `struct
+>   drm_gsp_capability` 本身（只改了同名但完全不同的 `sprd_disp/sprd_drm_gsp.h` 内部头
+>   文件里的一个 `#ifdef` 写法）。
+> - **capa_init 的调用顺序是对的**：`.alloc`（`gsp_r9p0_core_alloc`，分配结构体 + 设
+>   `capa_size`）和 `.init`（`gsp_r9p0_core_init` → `gsp_r9p0_core_capa_init`，填
+>   `magic`/`version`/`crop_max` 等其余字段）分属 `gsp_core_init()` 里两个先后调用的
+>   阶段，顺序正确；且 `kernel.log` 里 probe 全程没有报错，说明 `.init` 确实跑完了。
+>
+> 新加了一行诊断（跟上面 access_ok/uncopied 那次同一批，还没刷机验证）：在
+> `copy_to_user` 之前打印 `capa->magic` 是否等于 `CAPABILITY_MAGIC_NUMBER`
+> （`0xDEEFBEEF`）。如果下次日志显示 magic 对不上，说明前面"capa_init 顺序是对的"这
+> 条判断在实际这次构建上其实不成立（比如某个先决条件在我们的构建里没满足，`.init`
+> 提前 return 了但没走到报错分支），源数据本身就是坏的；如果 magic 正确，那就能完全
+> 排除"内核侧数据没初始化"，把范围收窄到"目标用户地址本身有问题"（是 HAL 传的指针
+> 值不对，还是那块用户内存映射有什么特殊之处，需要下次的 `access_ok`/`uncopied` 结果
+> 才能进一步判断）。
+>
+> 老实说：这一路静态读代码读下来，能查的逻辑路径基本都读过了，都是自洽的——没找到
+> 一个能直接解释"为什么必现失败"的确凿 bug。剩下能做的只有等下次真刷机、看这几行诊
+> 断日志的实际输出，再决定往哪个方向修。
+
 ### 顺带观察到、同样待查的一项
 
 ```
