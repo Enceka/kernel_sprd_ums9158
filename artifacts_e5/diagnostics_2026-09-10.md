@@ -211,6 +211,36 @@ HAL 的调用序是「先 92 后 208」（原厂日志里 `92,208,92,208` 交替
 > 一个能直接解释"为什么必现失败"的确凿 bug。剩下能做的只有等下次真刷机、看这几行诊
 > 断日志的实际输出，再决定往哪个方向修。
 
+> **再往下挖了一轮**，这次把边界推到了 DRM ioctl 分发这一层，同时用真实的 stock
+> `android.log`（`log_171` 归档，`03130000.sprd-gsp` 那次崩溃）解开了一个之前没弄懂的
+> 现象：
+>
+> - **每轮崩溃循环里 "get capability copy error" 总是成对出现，不是巧合**：
+>   `android.log` 里同一秒（`16:50:12.419`→`16:50:12.434`）能看到
+>   `SprdDisplayCore:: set display type : 0` 紧接着 `set display type : 1`——HWC 是给
+>   **主屏（primary, type 0）和外接屏（external, type 1）各自独立打开一次 GSPModule**，
+>   两次都各发一次 capability ioctl，两次都各自命中同一个 bug，所以每轮循环日志里总
+>   是配对出现两行、间隔零点几毫秒。跟外接屏本身的 `Failed to get crtc for display`
+>   （这个是正常的——这台设备没有外接屏，crtc 找不到是预期行为）无关，纯粹是"同一个
+>   bug 被两个独立调用方各触发一次"。这解释了"26 次失败 / 13 轮重启"正好是 2 的倍
+>   数，但没有提供新的根因线索。
+> - **排查了 DRM 通用 ioctl 分发层本身（`drivers/gpu/drm/drm_ioctl.c:824-906`
+>   `drm_ioctl()`）**，怀疑是不是内核和用户态对这个 ioctl 的 size 编码不一致（类似最
+>   早怀疑的 32/64 位问题，只是换成"用户态和内核态各自展开的 struct 大小不一样"这个
+>   更一般的版本）。读下来这层是标准上游实现、没有改过：
+>   `drv_size = _IOC_SIZE(ioctl->cmd)`（内核自己表里登记的大小）、
+>   `in_size = out_size = _IOC_SIZE(cmd)`（调用方实际传的 cmd 编码的大小），
+>   `ksize = max(max(in_size, out_size), drv_size)`——取三者最大值分配/清零 `kdata`，
+>   本来就是为了防这类大小不一致，无论两边算出来是不是一样大，`copy_from_user` /
+>   `copy_to_user` 用的都是各自的 `in_size`/`out_size`，不会因为大小不一致而读越界或
+>   读到脏数据。这条路也排除了。
+> - **到这里，从原始 `ioctl()` 系统调用一路往下——DRM 核心分发、compat 判断（已确认
+>   走的是原生 64 位，不经过 compat）、`sprd_gsp_get_capability_ioctl()` 本身的每一步
+>   校验、`capa` 的分配和初始化时机——全部读了一遍，没有一处能站得住脚的逻辑漏洞。**
+>   剩下唯一没法只靠读代码回答的问题是：`drm_capa->cap` 这个用户态指针在 HWC 那一侧
+>   到底指向什么、那块内存当时是不是真的映射着。这已经不是"某处代码写错了"能解释的
+>   范畴，只能等 `access_ok`/`uncopied`/`magic` 这三行诊断日志的实际数据。
+
 ### 顺带观察到、同样待查的一项
 
 ```
