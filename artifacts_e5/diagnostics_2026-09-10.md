@@ -247,8 +247,30 @@ fastboot reboot
 3. **补齐仓库模块（35 个）**：`sprd-kernel-modules-{video, common-camera, audio, microarray}`
    可编出 `vpu` `jpg` `sprd_camera` `sprd_cpp` `sprd_sensor` `sprd_flash_drv`
    `flash_ic_aw3641` `sprd_camsys_pw_domain` `mmdvfs` `microarray_fp` 及 audio 全套。
-4. **接线树内已有源码**：`sprd_gpu_cooling` `ion_ipc_trusty` `sprd_wdf` `sprd_wdh`
-   `unisoc_dump_info` `sc27xx_fuel_gauge` `sprd-charger-manager`（源码在树里，只是没接 Kconfig）。
+4. ~~**接线树内已有源码**~~（2026-09-10 复查，逐项核实过 defconfig 和 DT 之后）：
+   - `sprd_gpu_cooling`、`sprd_wdf`/`sprd_wdh`、`unisoc_dump_info` 其实**早就接好了**
+     （`UNISOC_GPU_COOLING_DEVICE=y`、`SPRD_APHANG=m`、`UNISOC_LASTKMSG=m` 已经在
+     defconfig 里，这条本来就是已经解决的，之前的列表是过时/没核实的记录）；
+   - `sc27xx_fuel_gauge` **不是缺 Kconfig，是名字对不上**：这块板子实际 PMIC
+     （`ump9620.dtsi` 的 `pmic_fgu`）compatible 是 `"sprd,ump9620-fgu"`，只有
+     `sprd_ump96xx_fuel_gauge.c` 的 `of_match_table` 认这个字符串，
+     `sprd_sc27xx_fuel_gauge.c` 只认 `sc27{20,21,30,31}-fgu`。当前
+     `CONFIG_FUEL_GAUGE_UMP96XX=m` 已经是对的驱动——原厂那个模块文件叫
+     `sc27xx_fuel_gauge.ko` 只是原厂自己的命名习惯，不代表这棵树里改名拆分过的驱动也要
+     叫这个名字，没有动它；
+   - `sprd-charger-manager` **是真的缺**：`e5-rongyue-overlay.dts` 里已经有
+     `cm-battery-hot`/`cm-battery-cold`/`cm-name="battery"` 这些 charger-manager 的
+     DT 绑定属性，源码（`charger-manager.c` + `sprd_vote.c` + `sprd_vchg_detect.c` +
+     `sprd_fchg_extcon.c` → `sprd-charger-manager.ko`）也全在树里，只是
+     `CONFIG_CHARGER_MANAGER` 没设。已加 `=m`（未测试）。已知缺口：原厂
+     `sprd_charger_manager` 还会协调 `aw322xx_charger`，但这棵树里没有它的源码（见下面
+     第 5 条），charger-manager 探测时只能看到我们确实注册了的几个电源(
+     `fast_charger_sc27xx`、`wireless_sy65153`、ump96xx fuel gauge)，缺一个 charger
+     之后实际表现如何没有验证过。
+   - `ion_ipc_trusty` **不是简单的 Kconfig 缺口**：它只通过 `EXPORT_SYMBOL_GPL` 导出
+     `ion_tipc_{read,write,init,exit}` 给别的驱动调用，整棵树里没有任何地方真的调用它
+     ——真正应该调用它的 ION secure heap 那部分代码根本没被移植过来。要接这个得先把调用
+     方也找到/移植，不是加一行 Kconfig 能解决的，先不动。
 5. **确认无源码**：`sprd_wlan_combo` `sprdbt_tty` `sprd_fm`（WCN/WiFi）、`aw322xx-charger`、
    `snd-soc-sprd-pa-aw87xxx`、`snd-soc-fsa4480`、`sprd_power_stat`。
 6. **触摸不是问题**：`focaltech_*` / `novatek_nt36528` / `sitronix_touch` / `nvt_nt36xxx` /
