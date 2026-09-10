@@ -161,6 +161,19 @@ HAL 的调用序是「先 92 后 208」（原厂日志里 `92,208,92,208` 交替
 下一步候选：在驱动里加一行 `pr_info` 打印 `drm_capa->cap` 与 `copy_to_user` 的返回值，
 或用 `access_ok()` 判定是「地址非法」还是「拷贝中途 fault」。
 
+> **已加为诊断 patch**（未测试，等下次能刷机再验证）：`gsp_dev.c` 里
+> `sprd_gsp_get_capability_ioctl()` 现在会在 `copy_to_user` 前后各打一行日志，带上
+> `drm_capa->cap` 的实际值、`access_ok()` 的结果、以及 `copy_to_user` 返回的「未拷贝字节
+> 数」。看下一次的日志时重点关注：
+> - `access_ok` 就不过 → 传进来的 `cap` 指针本身不是合法用户地址（HAL 侧问题，或者
+>   `struct drm_gsp_capability` 在用户态/内核态的实际内存布局不一致——留意 stock 内核用
+>   `clang 14.0.7` 编译、我们现在用 `clang 22.1.8`，两者对同一个 C 结构体的对齐/内边距按
+>   AAPCS64 应该一致，但值得作为一个可疑点排除）；
+> - `access_ok` 过但 `copy_to_user` 仍失败、且 `uncopied` 约等于 `size`（几乎整段没拷进
+>   去）→ 更像是地址一开始就没法访问（例如 stale/已经被回收的映射）；
+> - `uncopied` 明显小于 `size`（拷了一部分才失败）→ 更像是拷贝中途跨页时撞到了一个没映
+>   射的页，指向该用户 buffer 本身跨越了一个洞。
+
 ### 顺带观察到、同样待查的一项
 
 ```

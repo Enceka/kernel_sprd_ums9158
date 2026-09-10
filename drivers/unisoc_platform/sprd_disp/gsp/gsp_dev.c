@@ -651,11 +651,16 @@ int sprd_gsp_get_capability_ioctl(struct drm_device *drm_dev, void *data,
 		return -1;
 	}
 
+	if (!access_ok((void __user *)drm_capa->cap, size))
+		GSP_DEV_ERR(dev, "get capability copy: cap=%px size=%zu fails access_ok\n",
+				drm_capa->cap, size);
+
 	ret = copy_to_user((void __user *)drm_capa->cap,
 				(const void *)capa, size);
 
 	if (ret)
-		GSP_DEV_ERR(dev, "get capability copy error\n");
+		GSP_DEV_ERR(dev, "get capability copy error: cap=%px size=%zu uncopied=%d\n",
+				drm_capa->cap, size, ret);
 
 	GSP_DEV_INFO(dev, "io_cnt:%d, core_cnt:%d ,size:%zu, cap->size:%d",
 		capa->io_cnt, capa->core_cnt, size, capa->capa_size);
