@@ -262,11 +262,31 @@ fastboot reboot
      `cm-battery-hot`/`cm-battery-cold`/`cm-name="battery"` 这些 charger-manager 的
      DT 绑定属性，源码（`charger-manager.c` + `sprd_vote.c` + `sprd_vchg_detect.c` +
      `sprd_fchg_extcon.c` → `sprd-charger-manager.ko`）也全在树里，只是
-     `CONFIG_CHARGER_MANAGER` 没设。已加 `=m`（未测试）。已知缺口：原厂
-     `sprd_charger_manager` 还会协调 `aw322xx_charger`，但这棵树里没有它的源码（见下面
-     第 5 条），charger-manager 探测时只能看到我们确实注册了的几个电源(
-     `fast_charger_sc27xx`、`wireless_sy65153`、ump96xx fuel gauge)，缺一个 charger
-     之后实际表现如何没有验证过。
+     `CONFIG_CHARGER_MANAGER` 没设。已加 `=m`。
+
+     **2026-09-10 更正**：上面刚加的时候误以为 charger-manager 探测时能退而求其次看到
+     `fast_charger_sc27xx`/`wireless_sy65153`/ump96xx fuel gauge 这几个"已注册"的电源——
+     这是错的，而且这块板子根本没有无线充电硬件（`sy65153` 的 compatible 节点只出现在
+     无关的 `ums9230-*` 板级文件里，`e5-rongyue-overlay.dts` 自己一行都没有；实测 stock
+     dmesg 里也完全没有 `wireless`/`sy65153` 字样，真正在跑的只有
+     `aw322xx_chg 2-006a`（i2c2 地址 0x6a）+ `sc27xx-fgu`）。
+
+     核对 `e5-rongyue-overlay.dts` 的 `&cm` 节点后确认：
+     ```
+     cm-fuel-gauge = "sc27xx-fgu";
+     cm-chargers = "aw322xx_charger";
+     ```
+     `cm-chargers` 只列了这一个名字，不是"能看到哪个用哪个"的候选列表。再查
+     `drivers/power/supply/charger-manager.c` 的 `charger_manager_probe()`（约
+     1487-1497 行）：对 `cm-chargers` 里每个名字都会 `power_supply_get_by_name()`，
+     只要有一个找不到就直接 `dev_err(... "Cannot find power supply \"%s\"\n" ...)` +
+     `return -ENODEV`——**不是 `-EPROBE_DEFER`，不会重试**。
+
+     所以确定结论（不需要再刷机验证）：这棵树里没有任何驱动会注册出名为
+     `"aw322xx_charger"` 的 power_supply，`charger-manager` 探测时会干净地打印这行
+     `Cannot find power supply "aw322xx_charger"` 然后以 `-ENODEV` 失败——不会挂起、
+     不会占着重试，但也确实起不了作用。`CONFIG_CHARGER_MANAGER=m` 保留（结构上匹配
+     DT 期望，无害），但在拿到 `aw322xx_charger` 的驱动源码之前不会有实际效果。
    - `ion_ipc_trusty` **不是简单的 Kconfig 缺口**：它只通过 `EXPORT_SYMBOL_GPL` 导出
      `ion_tipc_{read,write,init,exit}` 给别的驱动调用，整棵树里没有任何地方真的调用它
      ——真正应该调用它的 ION secure heap 那部分代码根本没被移植过来。要接这个得先把调用
