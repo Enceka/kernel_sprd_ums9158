@@ -241,4 +241,6 @@ source "drivers/unisoc_platform/Kconfig"
 
 source "drivers/trusty/Kconfig"
 
+source "drivers/gpu/arm/Kconfig"
+
 endmenu
