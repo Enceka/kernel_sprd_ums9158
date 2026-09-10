@@ -23,6 +23,11 @@
 #define DSI_INT_STS_NEED_SOFT_RESET	BIT(0)
 #define DSI_INT_STS_NEED_HARD_RESET	BIT(1)
 
+#define VIDEO_VACT_LP_EN	BIT(0)
+#define VIDEO_VFP_LP_EN	BIT(1)
+#define VIDEO_VBP_LP_EN	BIT(2)
+#define VIDEO_VSA_LP_EN	BIT(3)
+
 enum dsi_work_mode {
 	DSI_MODE_CMD = 0,
 	DSI_MODE_VIDEO
@@ -55,6 +60,7 @@ struct dsi_context {
 	unsigned long base;
 	struct videomode vm;
 	bool enabled;
+	u8 id;
 	u8 channel;
 	u8 lanes;
 	u32 format;
@@ -100,13 +106,27 @@ struct dsi_context {
 	bool hporch_lp_disable;
 	/* simulated small resolution display mode */
 	bool surface_mode;
-	/* check lcd esd status if lcd be in recovery process or not */
-	bool is_esd_rst;
 	/* supported dpms mode */
 	int dpms;
 	int last_dpms;
+	/*
+	 * Use 4 bits number for descripting video lp mode, and it can be combined used.
+	 * BIT(0): allow vactive enter lp;
+	 * BIT(1): allow vfp enter lp;
+	 * BIT(2): allow vbp enter lp;
+	 * BIT(3): allow vsa enter lp;
+	 * For example:
+	 * If we need vfp & vbp enter lp, we can calculate this value as a result of BIT(1) | BIT(2)
+	 * And we get the result of 3 and set this value to lcd dt property sprd,video-lp-en-mode.
+	 * If we need all stage can enter lp,
+	 * we can calculate this value as a result of BIT(0) | BIT(1) | BIT(2) | BIT(3).
+	 * And we get the result of 15 and set this value to lcd dt property sprd,video-lp-en-mode.
+	 */
+	u32 video_lp_config;
 
 	const char *lcd_name;
+
+	int umb9230s_en;
 };
 
 struct dsi_core_ops {
@@ -215,12 +235,29 @@ struct sprd_dsi {
 	const struct dsi_glb_ops *glb;
 	struct mutex lock;
 	struct dsi_context ctx;
+	struct sprd_dpu *dpu;
+
+	/* edid releated information for reporting display device HW info to framework */
+	struct edid edid_info;
+	struct drm_property *edid_prop;
+	struct drm_property_blob *edid_blob;
+	struct sprd_dsi *dsi_master;
+	struct sprd_dsi *dsi_slave;
+	u32 dual_dsi_en;
+
+	struct umb9230s_device *umb9230s;
 };
 
-void sprd_dsi_encoder_disable_force(struct drm_encoder *encoder);
+#ifdef CONFIG_DRM_SPRD_DSI
+void sprd_dsi_encoder_disable_force(struct drm_crtc *crtc);
+#else
+static inline void sprd_dsi_encoder_disable_force(struct drm_crtc *crtc) {}
+#endif
+
 int dsi_panel_set_dpms_mode(struct sprd_dsi *dsi);
 
 extern const struct dsi_core_ops dsi_ctrl_r1p0_ops;
+extern const struct dsi_core_ops dsi_ctrl_r1p1_ops;
 extern const struct dsi_glb_ops sharkle_dsi_glb_ops;
 extern const struct dsi_glb_ops pike2_dsi_glb_ops;
 extern const struct dsi_glb_ops sharkl3_dsi_glb_ops;
@@ -228,4 +265,6 @@ extern const struct dsi_glb_ops sharkl5_dsi_glb_ops;
 extern const struct dsi_glb_ops sharkl5pro_dsi_glb_ops;
 extern const struct dsi_glb_ops qogirl6_dsi_glb_ops;
 extern const struct dsi_glb_ops qogirn6pro_dsi_glb_ops;
+extern const struct dsi_glb_ops qogirn6lite_dsi_glb_ops;
+extern const struct dsi_glb_ops qogirn6pro_dsi_s_glb_ops;
 #endif /* _SPRD_DSI_H_ */

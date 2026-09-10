@@ -1,15 +1,7 @@
 /*
- * Copyright (C) 2020 UNISOC Co., Ltd.
- *
- * This software is licensed under the terms of the GNU General Public
- * License version 2, as published by the Free Software Foundation, and
- * may be copied, distributed, and modified under those terms.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- */
+*SPDX-FileCopyrightText: 2020 Unisoc (Shanghai) Technologies Co.Ltd
+*SPDX-License-Identifier: GPL-2.0-only
+*/
 
 #include <linux/clk.h>
 #include <linux/delay.h>
@@ -277,11 +269,16 @@ static int dpu_clk_enable(struct dpu_context *ctx)
 static int dpu_clk_disable(struct dpu_context *ctx)
 {
 	struct dpu_clk_context *clk_ctx = &dpu_clk_ctx;
+	int ret;
 
 	clk_disable_unprepare(clk_ctx->clk_dpu_dpi);
 	clk_disable_unprepare(clk_ctx->clk_dpu_core);
 
 	clk_set_parent(clk_ctx->clk_dpu_dpi, clk_ctx->clk_src_96m);
+	ret = clk_set_rate(clk_ctx->clk_dpu_dpi, 96000000);
+	if (ret)
+		pr_err("dpu set dpi clk rate to default failed\n");
+
 	clk_set_parent(clk_ctx->clk_dpu_core, clk_ctx->clk_src_153m6);
 
 	return 0;
@@ -338,31 +335,107 @@ static void dpu_glb_disable(struct dpu_context *ctx)
 	clk_disable_unprepare(clk_ap_ahb_disp_eb);
 }
 
-static void dpu_reset(struct dpu_context *ctx)
+static void dpu_resume_reset(struct dpu_context *ctx)
 {
-	/* soft reset iommu */
-	regmap_update_bits(mmu_reset.regmap,
-		    mmu_reset.enable_reg,
-		    mmu_reset.mask_bit,
-		    mmu_reset.mask_bit);
-	udelay(10);
-	regmap_update_bits(mmu_reset.regmap,
-		    mmu_reset.enable_reg,
-		    mmu_reset.mask_bit,
-		    (unsigned int)(~mmu_reset.mask_bit));
+	u32 val;
+	struct sprd_dpu *dpu = (struct sprd_dpu *)container_of(ctx,
+				struct sprd_dpu, ctx);
+	/*
+	 * FIXME:
+	 * When gsp is busy, dpu executes dpu_reset.
+	 * Check gsp_busy status and add lock.
+	 * Just handle HDCP scence, power key lock/unlock.
+	 * When gsp is busy, dpu doesn't execute dpu reset request until gsp finishes operation.
+	 */
+	mutex_lock(&dpu->dpu_gsp_lock);
 
-	udelay(10);
+	do {
+		val = readl(ctx->gsp_base);
+		mdelay(10);
+	} while (val & BIT(2));
 
-	/* soft reset dpu */
-	regmap_update_bits(disp_reset.regmap,
-		    disp_reset.enable_reg,
-		    disp_reset.mask_bit,
-		    disp_reset.mask_bit);
-	udelay(10);
-	regmap_update_bits(disp_reset.regmap,
-		    disp_reset.enable_reg,
-		    disp_reset.mask_bit,
-		    (unsigned int)(~disp_reset.mask_bit));
+	if (!(val & BIT(2))) {
+			/* soft reset iommu */
+			regmap_update_bits(mmu_reset.regmap,
+							mmu_reset.enable_reg,
+							mmu_reset.mask_bit,
+							mmu_reset.mask_bit);
+			udelay(10);
+			regmap_update_bits(mmu_reset.regmap,
+							mmu_reset.enable_reg,
+							mmu_reset.mask_bit,
+							(unsigned int)(~mmu_reset.mask_bit));
+
+			udelay(10);
+
+			/* soft reset dpu */
+			regmap_update_bits(disp_reset.regmap,
+							disp_reset.enable_reg,
+							disp_reset.mask_bit,
+							disp_reset.mask_bit);
+			udelay(10);
+			regmap_update_bits(disp_reset.regmap,
+							disp_reset.enable_reg,
+							disp_reset.mask_bit,
+							(unsigned int)(~disp_reset.mask_bit));
+	}
+
+	mutex_unlock(&dpu->dpu_gsp_lock);
+}
+
+/*
+ * FIXME:
+ * If dpu occurs underflow right before system suspend.
+ * The hardware dispc active signal will be still be high and can not be cleared.
+ * Dispc active high will causing ap can not enter deep sleep mode.
+ * So we add reset operation before suspend to enable active signal clear.
+ */
+static void dpu_suspend_reset(struct dpu_context *ctx)
+{
+	u32 val;
+	struct sprd_dpu *dpu = (struct sprd_dpu *)container_of(ctx,
+				struct sprd_dpu, ctx);
+	/*
+	 * FIXME:
+	 * When gsp is busy, dpu executes dpu_reset.
+	 * Check gsp_busy status and add lock.
+	 * Just handle HDCP scence, power key lock/unlock.
+	 * When gsp is busy, dpu doesn't execute dpu reset request until gsp finishes operation.
+	 */
+	mutex_lock(&dpu->dpu_gsp_lock);
+
+	do {
+		val = readl(ctx->gsp_base);
+		mdelay(10);
+	} while (val & BIT(2));
+
+	if (!(val & BIT(2))) {
+			/* soft reset iommu */
+			regmap_update_bits(mmu_reset.regmap,
+							mmu_reset.enable_reg,
+							mmu_reset.mask_bit,
+							mmu_reset.mask_bit);
+			udelay(10);
+			regmap_update_bits(mmu_reset.regmap,
+							mmu_reset.enable_reg,
+							mmu_reset.mask_bit,
+							(unsigned int)(~mmu_reset.mask_bit));
+
+			udelay(10);
+
+			/* soft reset dpu */
+			regmap_update_bits(disp_reset.regmap,
+							disp_reset.enable_reg,
+							disp_reset.mask_bit,
+							disp_reset.mask_bit);
+			udelay(10);
+			regmap_update_bits(disp_reset.regmap,
+							disp_reset.enable_reg,
+							disp_reset.mask_bit,
+							(unsigned int)(~disp_reset.mask_bit));
+	}
+
+	mutex_unlock(&dpu->dpu_gsp_lock);
 }
 
 static void dpu_power_domain(struct dpu_context *ctx, int enable)
@@ -379,7 +452,8 @@ const struct dpu_clk_ops qogirl6_dpu_clk_ops = {
 
 const struct dpu_glb_ops qogirl6_dpu_glb_ops = {
 	.parse_dt = dpu_glb_parse_dt,
-	.reset = dpu_reset,
+	.reset = dpu_resume_reset,
+	.suspend_reset = dpu_suspend_reset,
 	.enable = dpu_glb_enable,
 	.disable = dpu_glb_disable,
 	.power = dpu_power_domain,

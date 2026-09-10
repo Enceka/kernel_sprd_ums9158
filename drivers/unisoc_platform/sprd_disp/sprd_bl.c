@@ -15,17 +15,19 @@
 #include "sprd_dpu.h"
 #include "sysfs/sysfs_display.h"
 
-#define U_MAX_LEVEL	255
-#define U_MIN_LEVEL	0
-
 void sprd_backlight_normalize_map(struct backlight_device *bd, u16 *level)
 {
 	struct sprd_backlight *bl = bl_get_data(bd);
+	u64 mul;
 
 	if (!bl->num) {
-		*level = DIV_ROUND_CLOSEST_ULL((bl->max_level - bl->min_level) *
-			(bd->props.brightness - U_MIN_LEVEL),
-			U_MAX_LEVEL - U_MIN_LEVEL) + bl->min_level;
+		if(!bd->props.brightness)
+			*level = 0;
+		else {
+			mul = bl->max_level * bd->props.brightness;
+			do_div(mul, bl->scale);
+			*level = mul + bl->min_level;
+		}
 	} else
 		*level = bl->levels[bd->props.brightness];
 }
@@ -161,6 +163,8 @@ static int sprd_backlight_parse_dt(struct device *dev,
 	else
 		bl->scale = bl->max_level;
 
+	DRM_INFO("bl num: %d, brightness max:%d, min:%d, dft:%d, scale:%d", bl->num,
+		bl->max_level, bl->min_level, bl->dft_level, bl->scale);
 	return 0;
 }
 
@@ -190,6 +194,14 @@ static int sprd_backlight_probe(struct platform_device *pdev)
 	struct pwm_state state;
 	struct sprd_backlight *bl;
 	int div, ret;
+	struct device_node *oled_bl_node, *lcd_node;
+
+	lcd_node = sprd_get_panel_node_by_name();
+	oled_bl_node = of_get_child_by_name(lcd_node, "oled-backlight");
+	if (oled_bl_node) {
+		DRM_INFO("use panel cabc backlight, do not register pwm backlight\n");
+		return -ENODEV;
+	}
 
 	bl = devm_kzalloc(&pdev->dev,
 			sizeof(struct sprd_backlight), GFP_KERNEL);
@@ -222,19 +234,26 @@ static int sprd_backlight_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "failed to register sprd backlight ops\n");
 		return PTR_ERR(bd);
 	}
-	bd->props.max_brightness = 255;
+
+	if(!bl->num) {
+		bd->props.max_brightness = bl->scale;
+		bd->props.brightness = bl->dft_level;
+		bd->props.scale = BACKLIGHT_SCALE_LINEAR;
+	} else {
+		bd->props.max_brightness = bl->num - 1;
+		div = ((bl->max_level - bl->min_level) << 8) / 255;
+		if (div > 0) {
+			bd->props.brightness = (bl->dft_level << 8) / div;
+		} else {
+			dev_err(&pdev->dev, "failed to calc default brightness level\n");
+			return -EINVAL;
+		}
+	}
+
 	bd->props.state &= ~BL_CORE_FBBLANK;
 	bd->props.power = FB_BLANK_UNBLANK;
 
-	div = ((bl->max_level - bl->min_level) << 8) / 255;
-	if (div > 0) {
-		bd->props.brightness = (bl->dft_level << 8) / div;
-	} else {
-		dev_err(&pdev->dev, "failed to calc default brightness level\n");
-		return -EINVAL;
-	}
-
-	DRM_INFO("current brightness:%d\n",bd->props.brightness);
+	DRM_INFO("Current Brightness:%d\n",bd->props.brightness);
 	backlight_update_status(bd);
 
 	platform_set_drvdata(pdev, bd);
@@ -252,9 +271,12 @@ static int sprd_backlight_probe(struct platform_device *pdev)
 }
 
 static const struct of_device_id sprd_backlight_of_match[] = {
+	{ .compatible = "sprd,sharkl3-backlight" },
+	{ .compatible = "sprd,sharkl5-backlight" },
 	{ .compatible = "sprd,sharkl5pro-backlight" },
 	{ .compatible = "sprd,sharkl6-backlight" },
 	{ .compatible = "sprd,qogirn6pro-backlight"},
+	{ .compatible = "sprd,qogirn6lite-backlight"},
 	{ }
 };
 

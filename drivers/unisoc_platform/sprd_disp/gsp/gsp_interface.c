@@ -10,8 +10,53 @@
 #include "gsp_dev.h"
 #include "gsp_debug.h"
 #include "gsp_interface.h"
+#include "gsp_interface/gsp_interface_pike2.h"
+#include "gsp_interface/gsp_interface_sharkl5.h"
+#include "gsp_interface/gsp_interface_sharkl3.h"
 #include "gsp_interface/gsp_interface_sharkl5pro.h"
+#include "gsp_interface/gsp_interface_sharkle.h"
+#include "gsp_interface/gsp_interface_qogirl6.h"
 #include "gsp_interface/gsp_interface_qogirn6pro.h"
+#include "gsp_interface/gsp_interface_qogirn6l.h"
+
+static struct gsp_interface_ops gsp_interface_pike2_ops = {
+	.parse_dt = gsp_interface_pike2_parse_dt,
+	.init = gsp_interface_pike2_init,
+	.deinit = gsp_interface_pike2_deinit,
+	.prepare = gsp_interface_pike2_prepare,
+	.unprepare = gsp_interface_pike2_unprepare,
+	.reset = gsp_interface_pike2_reset,
+	.dump = gsp_interface_pike2_dump,
+};
+static struct gsp_interface_ops gsp_interface_sharkl3_ops = {
+	.parse_dt = gsp_interface_sharkl3_parse_dt,
+	.init = gsp_interface_sharkl3_init,
+	.deinit = gsp_interface_sharkl3_deinit,
+	.prepare = gsp_interface_sharkl3_prepare,
+	.unprepare = gsp_interface_sharkl3_unprepare,
+	.reset = gsp_interface_sharkl3_reset,
+	.dump = gsp_interface_sharkl3_dump,
+};
+
+static struct gsp_interface_ops gsp_interface_sharkle_ops = {
+	.parse_dt = gsp_interface_sharkle_parse_dt,
+	.init = gsp_interface_sharkle_init,
+	.deinit = gsp_interface_sharkle_deinit,
+	.prepare = gsp_interface_sharkle_prepare,
+	.unprepare = gsp_interface_sharkle_unprepare,
+	.reset = gsp_interface_sharkle_reset,
+	.dump = gsp_interface_sharkle_dump,
+};
+
+static struct gsp_interface_ops gsp_interface_sharkl5_ops = {
+	.parse_dt = gsp_interface_sharkl5_parse_dt,
+	.init = gsp_interface_sharkl5_init,
+	.deinit = gsp_interface_sharkl5_deinit,
+	.prepare = gsp_interface_sharkl5_prepare,
+	.unprepare = gsp_interface_sharkl5_unprepare,
+	.reset = gsp_interface_sharkl5_reset,
+	.dump = gsp_interface_sharkl5_dump,
+};
 
 static struct gsp_interface_ops gsp_interface_sharkl5pro_ops = {
 	.parse_dt = gsp_interface_sharkl5pro_parse_dt,
@@ -23,6 +68,16 @@ static struct gsp_interface_ops gsp_interface_sharkl5pro_ops = {
 	.dump = gsp_interface_sharkl5pro_dump,
 };
 
+static struct gsp_interface_ops gsp_interface_qogirl6_ops = {
+	.parse_dt = gsp_interface_qogirl6_parse_dt,
+	.init = gsp_interface_qogirl6_init,
+	.deinit = gsp_interface_qogirl6_deinit,
+	.prepare = gsp_interface_qogirl6_prepare,
+	.unprepare = gsp_interface_qogirl6_unprepare,
+	.reset = gsp_interface_qogirl6_reset,
+	.dump = gsp_interface_qogirl6_dump,
+};
+
 static struct gsp_interface_ops gsp_interface_qogirn6pro_ops = {
 	.parse_dt = gsp_interface_qogirn6pro_parse_dt,
 	.init = gsp_interface_qogirn6pro_init,
@@ -31,6 +86,16 @@ static struct gsp_interface_ops gsp_interface_qogirn6pro_ops = {
 	.unprepare = gsp_interface_qogirn6pro_unprepare,
 	.reset = gsp_interface_qogirn6pro_reset,
 	.dump = gsp_interface_qogirn6pro_dump,
+};
+
+static struct gsp_interface_ops gsp_interface_qogirn6l_ops = {
+	.parse_dt = gsp_interface_qogirn6l_parse_dt,
+	.init = gsp_interface_qogirn6l_init,
+	.deinit = gsp_interface_qogirn6l_deinit,
+	.prepare = gsp_interface_qogirn6l_prepare,
+	.unprepare = gsp_interface_qogirn6l_unprepare,
+	.reset = gsp_interface_qogirn6l_reset,
+	.dump = gsp_interface_qogirn6l_dump,
 };
 
 int gsp_interface_is_attached(struct gsp_interface *interface)
@@ -73,7 +138,16 @@ int gsp_interface_attach(struct gsp_interface **interface, struct gsp_dev *gsp)
 	gsp_interface_copy_name(tmp, name);
 	GSP_INFO("gsp interface name: %s\n", name);
 
-	if (strcmp(GSP_SHARKL5PRO, name) == 0) {
+	if (strcmp(GSP_SHARKL3, name) == 0) {
+		*interface = kzalloc(sizeof(struct gsp_interface_sharkl3),
+				GFP_KERNEL);
+		if (IS_ERR_OR_NULL(*interface)) {
+			GSP_ERR("alloc interface[%s] failed\n", name);
+			goto error;
+		}
+		memset(*interface, 0, sizeof(struct gsp_interface_sharkl3));
+		(*interface)->ops = &gsp_interface_sharkl3_ops;
+	} else if (strcmp(GSP_SHARKL5PRO, name) == 0) {
 		*interface = kzalloc(sizeof(struct gsp_interface_sharkl5pro),
 				     GFP_KERNEL);
 		if (IS_ERR_OR_NULL(*interface)) {
@@ -82,7 +156,25 @@ int gsp_interface_attach(struct gsp_interface **interface, struct gsp_dev *gsp)
 		}
 		memset(*interface, 0, sizeof(struct gsp_interface_sharkl5pro));
 		(*interface)->ops = &gsp_interface_sharkl5pro_ops;
-	} else if (strcmp(GSP_QOGIRN6PRO, name) == 0) {
+	} else if (strcmp(GSP_SHARKL5, name) == 0) {
+		*interface = kzalloc(sizeof(struct gsp_interface_sharkl5),
+					GFP_KERNEL);
+		if (IS_ERR_OR_NULL(*interface)) {
+			GSP_ERR("alloc interface[%s] failed\n", name);
+			goto error;
+		}
+		memset(*interface, 0, sizeof(struct gsp_interface_sharkl5));
+		(*interface)->ops = &gsp_interface_sharkl5_ops;
+	} else if (strcmp(GSP_QOGIRL6, name) == 0) {
+		*interface = kzalloc(sizeof(struct gsp_interface_qogirl6),
+					GFP_KERNEL);
+		if (IS_ERR_OR_NULL(*interface)) {
+			GSP_ERR("alloc interface[%s] failed\n", name);
+			goto error;
+		}
+		memset(*interface, 0, sizeof(struct gsp_interface_qogirl6));
+		(*interface)->ops = &gsp_interface_qogirl6_ops;
+	} else if (strcmp(GSP_QOGIRN6PRO, name) == 0 || (strcmp(GSP1_QOGIRN6PRO, name) == 0)) {
 		*interface = kzalloc(sizeof(struct gsp_interface_qogirn6pro),
 					GFP_KERNEL);
 		if (IS_ERR_OR_NULL(*interface)) {
@@ -91,6 +183,33 @@ int gsp_interface_attach(struct gsp_interface **interface, struct gsp_dev *gsp)
 		}
 		memset(*interface, 0, sizeof(struct gsp_interface_qogirn6pro));
 		(*interface)->ops = &gsp_interface_qogirn6pro_ops;
+	} else if (strcmp(GSP_QOGIRN6L, name) == 0) {
+		*interface = kzalloc(sizeof(struct gsp_interface_qogirn6l),
+					GFP_KERNEL);
+		if (IS_ERR_OR_NULL(*interface)) {
+			GSP_ERR("alloc interface[%s] failed\n", name);
+			goto error;
+		}
+		memset(*interface, 0, sizeof(struct gsp_interface_qogirn6l));
+		(*interface)->ops = &gsp_interface_qogirn6l_ops;
+	} else if (strcmp(GSP_SHARKLE, name) == 0) {
+		*interface = kzalloc(sizeof(struct gsp_interface_sharkle),
+					GFP_KERNEL);
+		if (IS_ERR_OR_NULL(*interface)) {
+			GSP_ERR("alloc interface[%s] failed\n", name);
+			goto error;
+		}
+		memset(*interface, 0, sizeof(struct gsp_interface_sharkle));
+		(*interface)->ops = &gsp_interface_sharkle_ops;
+	} else if (strcmp(GSP_PIKE2, name) == 0) {
+		*interface = kzalloc(sizeof(struct gsp_interface_pike2),
+					GFP_KERNEL);
+		if (IS_ERR_OR_NULL(*interface)) {
+			GSP_ERR("alloc interface[%s] failed\n", name);
+			goto error;
+		}
+		memset(*interface, 0, sizeof(struct gsp_interface_pike2));
+		(*interface)->ops = &gsp_interface_pike2_ops;
 	} else {/* can add other interface with "else if" */
 		GSP_WARN("no match interface for gsp\n");
 		goto error;
