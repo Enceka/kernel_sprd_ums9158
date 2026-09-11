@@ -38,11 +38,13 @@
 | 模块 | 数量 | 来源 | commit |
 |---|---|---|---|
 | 音频 DSP 底层 | 10 | oppo 模块仓 `audio/sprd_audio` | `6431cb01d` |
+| aw87xxx 功放 + hook 修正 | 1 | oppo 模块仓 `codec/sprd/aw87xxx` | `e862ef847` |
 | vendor ASoC 栈 | 13 | oppo 模块仓 `audio/sprd` + `vender/audio/fsa4480` | `903f6b7cc` |
 | VSP/VPU | 1 | oppo 模块仓 `video/sprd-vpu` | `6cfbe7870` |
 | tlsc6x 模块改名 | — | 本树已有源码 | `0d8edea97` |
 
-全部编译通过（aarch64 clang，零错误零告警），**尚未在 defconfig 启用**。
+共 **25** 个模块，全部编译通过（aarch64 clang，零错误零告警）
+且未定义符号均可在树内解析（见 §2.6），**尚未在 defconfig 启用**。
 
 ### 2.1 关键：Kbuild 的条件分支不能拍平
 
@@ -94,6 +96,57 @@ vendor 的 Kbuild 按 `BSP_KERNEL_BUILD_CONFIG` 分支定义 `-D` 宏。
 后者。vendor_dlkm 重打包是**按名字**替换原厂模块的，名字不对要么被丢掉、
 要么留下装不进去的原厂旧模块。已改名对齐。
 
+## 2.5 追加：`sprd-kernel-modules-audio`(Motorola uoa34)的用处
+
+这个仓库和 `kernel-sprd`(5.15.149)同源，也就是**我们树里 Unisoc 平台代码的同代版本**，
+而上面导入的音频来自 OPPO 的 5.15.189。两者 68 个同名文件里 **25 个有差异**，
+所以"用哪一份"不是无所谓的。
+
+**结论：没有需要从它补的模块**（它只多一个 `snd-soc-sprd-pa-fs1815n`，是另一颗功放），
+但它有决定性的**诊断价值**——把它当第三个参照后，用原厂 `.ko` 的 DWARF
+（函数名 + `DW_AT_decl_line`）三方比对，发现：
+
+| 文件 | OPPO | Motorola | 结论 |
+|---|---|---|---|
+| `sprd-asoc-common.c` | 偏移恒为 -4 | 同 | 两边同源 |
+| `sprd-asoc-card-utils-legacy.c` | 偏移 {-4, 17} | {-4, 5, 58} | OPPO 更接近 |
+| `sprd-asoc-card-utils.c` | {-1,12,53,65} | {-2,11,13} | Motorola 更接近 |
+| `sprd-asoc-card-utils-hook.c` | 13 个函数只对上 **8** | 对上 **11** | 都不是原厂那一份 |
+
+原厂 `hook.c` 是**第三个变体**：它有 Motorola 才有的 `audio_sense_*`，
+**也**有 OPPO 才有的 aw87xxx 支持（原厂叫 `hook_spk_aw87xxx`）。
+功能上 aw87xxx 是刚需（芯片实际在板上），所以继续用 OPPO 那一份。
+
+## 2.6 一个 `.o` 级编译查不出来的坑：未定义符号
+
+`macos_compile_check.sh` 只编到 `.o`，**不做模块链接**，所以"编过了"并不代表模块能加载。
+本轮就踩到了：`snd-soc-sprd-card` 引用了三个外置功放驱动，其中两个根本没导入
+（`sipa_audio_power_scene_set` ← `snd-soc-sipa`、`frsm_i2ca_spk_switch` ← `snd-soc-frsm-v5`），
+还有一处 `soc_codec_conf_sipa` 也来自 sipa。真刷进去会直接 `insmod` 失败。
+
+补了一道检查（做法记在这里，可复用）：把每个模块 `.o` 的未定义符号
+（`llvm-nm --undefined-only`）与全树 `EXPORT_SYMBOL*` 的并集比对。
+两点注意：
+- 要手工补上**宏生成的导出**，否则全是误报 —— `_dev_err`/`_dev_info`/`_dev_warn`
+  由 `define_dev_printk_level()` 生成，`param_ops_*` 由 `STANDARD_PARAM_DEF()` 生成，
+  正则只能抓到宏的形参名；
+- 跨模块引用要把本批模块自己定义的符号也算作已提供。
+
+修完后本轮 25 个模块的未定义符号**全部可在树内解析**。
+
+## 2.7 hook 表的顺序是和 dtb 的 ABI
+
+`ext_hook_arr[]` 的**下标**就是设备树 `sprd,spk-ext-pa-info` 选的值，
+而我们**启动用的是原厂 dtb**（`repack_boot_e5.sh` 不替换 dtb）。
+
+实测：`/sound@0` 的 `sprd,spk-ext-pa-info = <0 1 1 0>`
+→ `{ctrl_type=0(SPK), hook_sel=1, priv=1, share_gpio=0}`，即**选第 1 号 hook**；
+而板上功放实测在 `/sys/bus/i2c/devices/6-0058`，名字 `aw87xxx_pa`。
+
+OPPO 原表第 1 号是 **sia8xx**，直接用会去驱动错误的功放芯片。
+去掉两个用不上的 hook 后第 1 号正好是 aw87xxx，与原厂 dtb 对齐。
+**以后再动这张表必须同步确认 dtb 的取值。**
+
 ## 3. 有源码但本轮没做
 
 | 模块 | 来源 | 说明 |
@@ -109,8 +162,8 @@ vendor 的 Kbuild 按 `BSP_KERNEL_BUILD_CONFIG` 分支定义 `-D` 宏。
   `aw32257_charger.c`，没有 `aw322xx`。与 09-10 文档的结论一致。
 - **camera 组**：`sprd_camera` / `sprd_cpp` / `sprd_sensor` / `sprd_flash_drv` /
   `sprd_camsys_pw_domain` / `flash_ic_aw3641` / `mmdvfs`。
-- `snd-soc-sprd-pa-aw87xxx`（oppo 模块仓里有个 `snd-soc-aw87xxx`，**模块名不同**，
-  未核实是否同一驱动）。
+- ~~`snd-soc-sprd-pa-aw87xxx`~~ **已解决**：OPPO 的 `snd-soc-aw87xxx` 就是同一驱动，
+  导出原厂 card 需要的 `aw87xxx_set_profile`，已按原厂名导入（见 §2.7）。
 
 `sprd_camsys_pw_domain` 缺失有一个具体后果：**`sprd-jpg` 没法导入**。
 `sprd_jpg.c` 在每次 open/release 都调 `sprd_glb_mm_pw_on_cfg()`/`_off_cfg()`
