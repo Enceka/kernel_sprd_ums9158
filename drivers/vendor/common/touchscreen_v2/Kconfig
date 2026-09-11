@@ -19,7 +19,18 @@ config TOUCHSCREEN_VENDOR_V2
 
 config TOUCHSCREEN_BOARD_NAME
 	string "config board firmware folder"
+	default "e5" if TOUCHSCREEN_TLSC6X_V3
 	default ""
+	help
+	  Selects which tlsc6x_v3/firmware_config/<name>/ directory is put on
+	  the include path.  That directory supplies tlsc6x_config.h (the
+	  per-board feature macros) and comp_upd_bin.h (the bundled panel
+	  firmware), so an empty or wrong value makes the include path point at
+	  a directory that does not exist.
+
+	  The four upstream ZTE values (chestnut, dates, pitaya, plum) are all
+	  byte-identical to each other; "e5" is a copy with the proximity and
+	  auto-firmware-upgrade macros turned off for this board.
 
 config TOUCHSCREEN_UFP_MAC
 	bool "tp under fingerprint status machine"
