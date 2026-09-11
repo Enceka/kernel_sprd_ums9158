@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: GPL-2.0
+#
+# Unisoc video accelerators, imported from
+# android_kernel_modules_and_devicetree_oppo_ums9230
+# (bsp/modules/kernel5.15/video).
+#
+# Both are vendor char-device drivers, not V4L2, which is why they live here
+# rather than under drivers/media/.  The matching power domain driver
+# (sprd-vpu-pw-domain) is already in drivers/soc/sprd/domain/.
+
+config UNISOC_VPU
+	tristate "Unisoc VSP/VPU video codec (vpu.ko)"
+	depends on ARCH_SPRD
+	default n
+	help
+	  Hardware video decoder/encoder (VSP).  Stock loads this as vpu.ko
+	  and binds it to the vsp nodes in the device tree.
+
+# sprd-jpg is deliberately NOT imported.  sprd_jpg.c calls
+# sprd_glb_mm_pw_on_cfg()/_off_cfg() on every open/release for anything that is
+# not SHARKL3, and those are exported by sprd_camsys_pw_domain - confirmed on
+# the device, where /proc/kallsyms tags them "[sprd_camsys_pw_domain]".  That
+# module has no source in any of the vendor trees available here, so jpg.ko
+# could be built only by stubbing out its power sequencing, which would leave
+# the multimedia domain off.
+
