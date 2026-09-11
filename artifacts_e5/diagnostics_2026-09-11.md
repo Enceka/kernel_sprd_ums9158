@@ -183,6 +183,67 @@ android_kernel_zte_ums9620_mifi_u30air/drivers/vendor/common/touchscreen_v2/
 
 注意设备用的是**自己的 dtbo 分区**，触摸节点本来就存在，所以缺的只是驱动。
 
+### 进展（本轮）
+
+芯片型号已**在运行中的设备上实测确证**是 tlsc6x（此前只是 DT + 原厂 `.ko` 文件名推断）：
+`/proc/bus/input/devices` 里注册的是 `Name="tlsc6x_touch"`，
+`/sys/bus/i2c/devices/3-002e/` 的 `name` / `compatible` 分别是
+`tlsc6x_ts` / `tlsc6x,tlsc6x_ts`，并带有该驱动自建的 `tlsc_*` sysfs 节点。
+**sitronix 那颗确实没在用**，可以不管。
+
+移植侧三项改造已落地（详见 `touch_port_plan.md`）：
+
+- `b486a2cde` —— DT 用命名属性 `tlsc6x,{reset,irq}-gpio`，而驱动用的是下标式
+  `of_get_gpio(np, 0/1)`，会返回 `-ENOENT` 且是致命分支（`goto fail`），
+  **不改则必然 probe 失败**。已改为 `of_get_named_gpio()`。
+- `8d706a2fa` —— 新建 `firmware_config/e5/` 并把 Kconfig 默认值设为 `"e5"`。
+  过程中发现上游四个项目代号目录（chestnut/dates/pitaya/plum）**内容逐字节完全相同**，
+  所以"选哪个更接近 E5"本是个伪问题。
+- wakelock 一项经复核**属早前误判**，无需改动：调用点都在
+  `CONFIG_PM_WAKELOCKS` + `LINUX_VERSION_CODE >= 4.19` 分支内，
+  走的已是 5.15 现存 API；引用已删除头文件的是另一条不会被编译的 `#else` 分支。
+  （反过来说：**`CONFIG_PM_WAKELOCKS` 不能关掉**，否则会落到那条分支上编译失败。）
+
+尚未在 defconfig 启用，也尚未编译验证（本会话无构建环境）。
+
+---
+
+## 5b. WCN（WiFi / BT / FM / GNSS）：芯片对应关系已完整验证
+
+导入三个 WCN 驱动（`5f465ad54` FM、`dd251524b` BT、`49a844cb6` WLAN）并启用
+（`b74489a84`）后，逐环核对了「defconfig 选的芯片」是否真的等于「设备上的芯片」。
+**结论：完全对应，无需改动。** 证据链如下（每一环都是实据，非推断）：
+
+| 环节 | 证据 |
+|---|---|
+| 设备属性 | `ro.vendor.wcn.hardware.product = marlin3_lite`、`ro.vendor.gnsschip = marlin3lite` |
+| 设备 DT | `/sys/firmware/devicetree/base/sprd-marlin3/compatible` = `unisoc,marlin3lite_sdio` |
+| 驱动匹配 | `sprd_wcn.c:148` `{ .compatible = "unisoc,marlin3lite_sdio", .data = &g_marlin3lite_sdio_data }` |
+| 匹配数据 | `sprd_wcn.c:92` `g_marlin3lite_sdio_data = { .unisoc_wcn_sdio, .unisoc_wcn_slp, .unisoc_wcn_m3lite = true }` |
+| 型号换算 | `sprd_wcn.h:29` `bool unisoc_wcn_m3lite; //UMW2652`；`umw2652_glb.h:24` `/* UMW2652 is the lite of sc2355 */` |
+| defconfig | `CONFIG_SC23XX=y`(721) + `CONFIG_UMW2652=y`(722) |
+
+即 **marlin3lite ≡ m3lite ≡ UMW2652**，defconfig 选的正是这颗。
+
+三个上层驱动也与 DT 子节点一一对上 —— `sprd-marlin3` 节点下正好有
+`wlan` / `sprd-mtty`(BT) / `sprd-fm` 三个子节点，对应
+`UNISOC_WLAN_COMBO` / `UNISOC_WCN_BT` / `UNISOC_WCN_FM`；
+原厂运行中实际加载的也正是这四个：
+
+```
+sprd_fm  sprdbt_tty  sprd_wlan_combo  wcn_bsp(被前三者共同依赖)
+```
+
+### 排查过程中虚惊两次（记录下来避免重复怀疑）
+
+1. **`CONFIG_UMW2652` 依赖 `SC23XX`（`default n`），会不会被 `olddefconfig` 静默丢弃？**
+   —— 不会。`CONFIG_SC23XX=y` 就在 defconfig 第 721 行（紧邻 722 行的 `UMW2652`）。
+   第一次没发现是因为 grep 模式（`WCN|WLAN|GNSS|...`）不匹配 `SC23XX` 这个名字。
+2. **defconfig 里完全没有 `CONFIG_WLAN`，WiFi 会不会起不来？** —— 不影响。
+   `UNISOC_WLAN_COMBO` 只 `depends on CFG80211`(=m，已设) 和 `UNISOC_WCN_BSP`(=m，已设)，
+   与 `CONFIG_WLAN` 无关；后者是 `drivers/net/wireless` 那棵树的总开关，默认 `y`，
+   `savedefconfig` 按惯例会省略默认值，所以不出现在文件里是正常的。
+
 ---
 
 ## 6. 下一步
@@ -190,8 +251,13 @@ android_kernel_zte_ums9620_mifi_u30air/drivers/vendor/common/touchscreen_v2/
 1. **刷 `vendor_dlkm_e5.img`**（只刷这一个，boot / vendor_boot 自上轮未变且配套）
    → 确认电池与 USB 恢复、adb 回来；
 2. 恢复 §4 的 36 项为 `=m`，重编译重打包，验证开机；
-3. 移植触摸驱动（§5）；
-4. 把「按 `modules.order` 全量替换 + depmod + 登记 fs_config/file_contexts」
+3. ~~移植触摸驱动~~ → 改造已完成（§5），**下一步是编译**：
+   defconfig 加 `CONFIG_TOUCHSCREEN_VENDOR_V2=m` + `CONFIG_TOUCHSCREEN_TLSC6X_V3=m`
+   （`BOARD_NAME` 不必写，已 `default "e5"`），跑 `./build_e5.sh` 按报错收敛 —— 这批
+   代码来自 5.4 内核树且**从未在 5.15 上编译过**，预计仍有 API 不兼容需逐个处理；
+4. **WCN 编译验证**（§5b）：芯片对应关系已确认无误，但同样**一次都没编译过**，
+   需确认 `wcn_bsp` / `sprd_wlan_combo` / `sprdbt_tty` / `sprd_fm` 四个 `.ko` 能否产出；
+5. 把「按 `modules.order` 全量替换 + depmod + 登记 fs_config/file_contexts」
    固化成一个 `repack_vendor_dlkm.sh`，避免 §3 的坑再犯。
 
 ## 附：本轮产生的镜像
