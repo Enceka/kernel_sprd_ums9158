@@ -191,11 +191,27 @@ struct sprd_glue {
 
 static int boot_charging;
 
-#if IS_ENABLED(CONFIG_SPRD_USBM)
-static const bool is_slave = true;
-#else
-static const bool is_slave;
-#endif
+/*
+ * musb_sprd has a "slave" mode in which it hands the port over to the SPRD
+ * USBM subsystem: every vbus and id event is dropped and USBM is expected to
+ * drive the state machine.  It used to be selected by CONFIG_SPRD_USBM, which
+ * this build sets because sprd_usbm.ko is loaded on this phone - but the stock
+ * musb_sprd.ko was clearly built with the slave path compiled out:
+ *
+ *   - /sys/class/usb_notify exists on a stock unit, and
+ *     musb_sprd_usb_notify_init() only creates it when !is_slave;
+ *   - "ignored in slave mode" never appears in the stock dmesg;
+ *   - disassembling the stock module shows musb_sprd_vbus_notifier() going
+ *     straight to the "ignore repeate vbus event" comparison with no is_slave
+ *     test at all, and sprd_musb_ops.quirks reading 0x400 (MUSB_DMA_SPRD)
+ *     rather than the CONFIG_SPRD_USBM value with MUSB_PRESERVE_SESSION.
+ *
+ * Running as a slave was fatal here: musb_sprd_vbus_notifier() dropped the
+ * events, so musb_sprd_chg_detect_work() never ran, B_SESS_VLD was never set,
+ * sm_work stopped after a single pass ("sm_work: undefined state") and the
+ * gadget never soft connected - adb stayed offline.  Match the stock build.
+ */
+static const bool is_slave = false;
 
 #if IS_ENABLED(CONFIG_USB_DWC3_SPRD)
 extern int dwc3_sprd_probe_finish(void);
@@ -609,11 +625,8 @@ static int sprd_musb_recover(struct musb *musb)
 }
 
 static const struct musb_platform_ops sprd_musb_ops = {
-#if IS_ENABLED(CONFIG_SPRD_USBM)
-	.quirks = MUSB_DMA_SPRD | MUSB_PRESERVE_SESSION,
-#else
+	/* Stock reads 0x400 here; see the is_slave comment above. */
 	.quirks = MUSB_DMA_SPRD,
-#endif
 	.init = sprd_musb_init,
 	.exit = sprd_musb_exit,
 	.enable = sprd_musb_enable,
