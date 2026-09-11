@@ -21,6 +21,7 @@ obj-$(CONFIG_UNISOC_7SRESET)	+= sprd_7sreset.o
 obj-$(CONFIG_UNISOC_DISP)	+= sprd_disp/
 obj-$(CONFIG_UNISOC_DMABUF)	+= dmabufheap/
 obj-$(CONFIG_UNISOC_GNSS)	+= sprd_gnss/
+obj-$(CONFIG_UNISOC_AUDIO)	+= sprd_audio/
 obj-$(CONFIG_UNISOC_WCN_BT)	+= sprd_bt/
 obj-$(CONFIG_UNISOC_WCN_FM)	+= sprd_fm/
 obj-$(CONFIG_UNISOC_MAPUSER)    += sprd_map/
