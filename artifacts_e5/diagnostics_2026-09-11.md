@@ -14,7 +14,8 @@
 | 全量编译 | ✅ 通过（此前长期失败）| 见 §2 |
 | vendor_dlkm 模块 | ⚠️ 已定位修复，镜像待刷 | 128/131 模块拒载，见 §3 |
 | 电池 / USB(adb) | ⚠️ 见 §3 | 与模块拒载现象一致 |
-| 触摸 | ❌ 驱动从未被编译 | 源码位置已定位，见 §5 |
+| 触摸 | ✅ 已启用并编译通过 | 4 处 API 断裂已修，见 §5 |
+| WCN 三驱动 | ✅ 编译通过 | 2 处断裂已修，见 §5b |
 
 ---
 
@@ -204,7 +205,34 @@ android_kernel_zte_ums9620_mifi_u30air/drivers/vendor/common/touchscreen_v2/
   走的已是 5.15 现存 API；引用已删除头文件的是另一条不会被编译的 `#else` 分支。
   （反过来说：**`CONFIG_PM_WAKELOCKS` 不能关掉**，否则会落到那条分支上编译失败。）
 
-尚未在 defconfig 启用，也尚未编译验证（本会话无构建环境）。
+### 编译验证（已完成）
+
+**更正**：此前写的「本会话无构建环境」是错的 —— Homebrew clang 可以直接交叉编译
+aarch64，内核构建系统本身也能在 macOS 上跑起来。已固化成
+`artifacts_e5/macos_compile_check.sh`（`7628b5527`），限制写在脚本头部。
+
+驱动已在 defconfig 启用（`8f3d0ba8d`），产出 `zte_tpd.o` + `tlsc6x_ts.o`，
+零错误零告警。过程中修掉 3 处 5.4→5.15 断裂：
+
+- `78c0a57ce` —— **25 个错误全是同一个**：5.6 起 `proc_create()` 要求
+  `const struct proc_ops *`，不再接受 `file_operations`。28 个 procfs 节点
+  （ztp_core.c 27 个 + tlsc6x-debug）全部转换：`.read/.write` →
+  `.proc_read/.proc_write`，并删掉 `.owner` —— `struct proc_ops` 没有这个成员，
+  模块生命周期由 procfs 自己的 `pde_users` 引用计数处理（这正是上游拆分两个结构体时
+  去掉该字段的原因）。
+- `452768baa` —— 两处**只在 E5 板级配置下才暴露**的问题（上游四个 board config
+  都开着这两个宏，从没编译过这条分支）：
+  - `find_3535last_valid_burn_cfg()` 定义在 `#ifdef TLSC_AUTO_UPGRADE` 内，
+    调用点 `tlsx6x_3535find_lastvaild_ver()` 却没有守卫；加上同样的守卫后退化为
+    「没找到已烧录配置」，正是调用方本来就要处理的状态。
+  - `test_val` 仅在 `#ifdef TLSC_TPD_PROXIMITY` 内使用 → `-Werror=unused-variable`。
+
+另外发现一个 Kconfig 陷阱（已在 `8f3d0ba8d` 里规避）：`TOUCHSCREEN_BOARD_NAME`
+的 `default "e5" if TOUCHSCREEN_TLSC6X_V3` **只在该符号尚无取值时生效**。若先在
+TLSC6X 关闭的状态下跑过一次 `olddefconfig`，`.config` 会记下
+`BOARD_NAME=""`，之后再打开 TLSC6X 也不会重算 —— 空串会让
+`firmware_config/<name>/` 的 include 路径指向不存在的目录。所以 defconfig 里把它
+显式写死，不依赖 default。
 
 ---
 
@@ -244,6 +272,45 @@ sprd_fm  sprdbt_tty  sprd_wlan_combo  wcn_bsp(被前三者共同依赖)
    与 `CONFIG_WLAN` 无关；后者是 `drivers/net/wireless` 那棵树的总开关，默认 `y`，
    `savedefconfig` 按惯例会省略默认值，所以不出现在文件里是正常的。
 
+### 编译验证（已完成）
+
+`sprd_fm.o` / `sprdbt_tty.o` 直接零错误零告警通过。`sprd_wlan_combo.o`（46 个
+目标文件）修掉两处后通过：
+
+- `7f6025b3a` —— **`NL80211_WAPI_VERSION_1` 在 GKI 头文件里不存在**。WAPI
+  （GB 15629.11）是 Unisoc 给 `enum nl80211_wpa_versions` 加的扩展，他们改过 UAPI
+  头文件，而本树基于的 android13-5.15 GKI 没有。
+
+  这个取值是驱动与用户态之间的 wire format（设备上原厂
+  `/vendor/bin/hw/wpa_supplicant` 确实带 WAPI，43 处相关字符串），**不能猜**，
+  所以从原厂 `/vendor/lib/modules/sprd_wlan_combo.ko` 里读出来：
+  `sprd_convert_wpa_version()` 的 switch 被编译成 `.rodata+0x1c870` 处、以
+  `(值 - 1)` 为下标的跳转表：
+
+  | nl80211 值 | 映射到 | 反推 |
+  |---|---|---|
+  | 1 | `0x1` `SPRD_WPA_VERSION_1` | `WPA_VERSION_1 = 1<<0` |
+  | 2 | `0x2` `SPRD_WPA_VERSION_2` | `WPA_VERSION_2 = 1<<1` |
+  | 4 | `0x8` `SPRD_WPA_VERSION_3` | `WPA_VERSION_3 = 1<<2`（同上游）|
+  | 8 | `0x4` `SPRD_WAPI_VERSION_1` | **`WAPI_VERSION_1 = 1<<3`** |
+
+  即 Unisoc 保留了上游的 WPA3 取值，把 WAPI 追加在 `1<<3`。
+
+  **注意这与驱动里 `SPRD_*` 宏的位序相反**（那边 WAPI 是 `BIT(2)`、WPA3 是
+  `BIT(3)`）。按 `SPRD_*` 的位序去推 nl80211 的取值会得到错的答案，并且会同时把
+  WPA3 和 WAPI 都映射错 —— 这一步中途确实推错过一次，是靠反汇编纠正的。
+
+  定义写在驱动自己的头文件里并加 `#ifndef`，没有去改 GKI 的 UAPI 头文件，
+  这样在原厂 BSP 内核上会自动让位。
+
+- `649c88cff` —— 4 处 K&R 风格的 `()` 定义（`get_project_name` ×2、
+  `get_rfboard_id` ×2）触发 `-Werror=strict-prototypes`。
+
+顺带从原厂 `.ko` 的 DWARF 里看到一条信息：它的源码路径是
+`.../SPRD_A13_5G/bsp/modules/**kernel5.4**/wcn/wlan/wlan_combo/`，
+即**原厂跑的是 5.4 版驱动**，而我们导入的是 OPPO 那棵树的 5.15 版。两者行为差异
+未评估。
+
 ---
 
 ## 6. 下一步
@@ -251,14 +318,16 @@ sprd_fm  sprdbt_tty  sprd_wlan_combo  wcn_bsp(被前三者共同依赖)
 1. **刷 `vendor_dlkm_e5.img`**（只刷这一个，boot / vendor_boot 自上轮未变且配套）
    → 确认电池与 USB 恢复、adb 回来；
 2. 恢复 §4 的 36 项为 `=m`，重编译重打包，验证开机；
-3. ~~移植触摸驱动~~ → 改造已完成（§5），**下一步是编译**：
-   defconfig 加 `CONFIG_TOUCHSCREEN_VENDOR_V2=m` + `CONFIG_TOUCHSCREEN_TLSC6X_V3=m`
-   （`BOARD_NAME` 不必写，已 `default "e5"`），跑 `./build_e5.sh` 按报错收敛 —— 这批
-   代码来自 5.4 内核树且**从未在 5.15 上编译过**，预计仍有 API 不兼容需逐个处理；
-4. **WCN 编译验证**（§5b）：芯片对应关系已确认无误，但同样**一次都没编译过**，
-   需确认 `wcn_bsp` / `sprd_wlan_combo` / `sprdbt_tty` / `sprd_fm` 四个 `.ko` 能否产出；
+3. ~~移植触摸驱动~~ → ~~编译~~ **均已完成**（§5）：已启用并编译通过；
+   真机行为（probe、坐标、`tlsc_*` sysfs 节点缺失的影响）仍待刷机验证；
+4. ~~WCN 编译验证~~ **已完成**（§5b）：`sprd_fm` / `sprdbt_tty` /
+   `sprd_wlan_combo` 均编译链接通过。**注意 `wcn_bsp`（`sprdwcn/`）不在本轮验证
+   范围内** —— 它是更早（2020 版）导入的，本轮只编了新导入的那三个；
 5. 把「按 `modules.order` 全量替换 + depmod + 登记 fs_config/file_contexts」
-   固化成一个 `repack_vendor_dlkm.sh`，避免 §3 的坑再犯。
+   固化成一个 `repack_vendor_dlkm.sh`，避免 §3 的坑再犯；
+6. defconfig 里 `CONFIG_SPRD_MEMDISK` 被赋值两次（667 行 `=m`、907 行
+   `is not set`），每次构建都会告警 `override: reassigning to symbol`。
+   后者生效（即实际是关闭的），但哪个才是本意不明确，没有擅自删 —— 需要确认。
 
 ## 附：本轮产生的镜像
 
