@@ -2478,18 +2478,7 @@ musb_init_controller(struct device *dev, int nIrq, void __iomem *ctrl)
 	if (status < 0)
 		goto err_usb_phy_init;
 
-	if (use_dma && dev->dma_mask && musb->ops->dma_init) {
-		/*
-		 * use_dma is a module parameter hardcoded to true, and
-		 * musb_dma_controller_create is assigned from ops->dma_init
-		 * unconditionally a few lines up.  A glue layer built without
-		 * its DMA engine (CONFIG_USB_SPRD_DMA=n leaves both the
-		 * sprd_musbhsdma driver and this .dma_init out) therefore
-		 * called a NULL pointer here and panicked before the log
-		 * service could persist anything, which looked like a boot
-		 * loop.  Check that the glue actually provides a DMA
-		 * controller before creating one; musb falls back to PIO.
-		 */
+	if (use_dma && dev->dma_mask) {
 		musb->dma_controller =
 			musb_dma_controller_create(musb, musb->mregs);
 		if (IS_ERR(musb->dma_controller)) {
