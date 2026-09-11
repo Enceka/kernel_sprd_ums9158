@@ -2163,6 +2163,17 @@ MODULE_DEVICE_TABLE(i2c, aw32257_i2c_id_table);
 #ifdef CONFIG_OF
 static const struct of_device_id aw32257_of_match_table[] = {
 	{ .compatible = "aw32257" },
+	/*
+	 * The E5 device tree describes this charger as
+	 *     charger@6a { compatible = "awinic,aw322xx_chg"; ... };
+	 * and it is a fw_devlink supplier for 64a00000.usb (the MUSB
+	 * controller), so without a driver bound to it USB never leaves
+	 * -EPROBE_DEFER.  The stock vendor module is built from
+	 * drivers/power/supply/aw322xx-charger.c and carries both the
+	 * "aw322xx" and "aw32257" strings, i.e. the two are one driver
+	 * family - this tree only kept the aw32257 compatible.
+	 */
+	{ .compatible = "awinic,aw322xx_chg" },
 	{},
 };
 MODULE_DEVICE_TABLE(of, aw32257_of_match_table);
