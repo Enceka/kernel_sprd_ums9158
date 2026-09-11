@@ -30,6 +30,7 @@ obj-$(CONFIG_SND_SOC_UNISOC_VBC_FE)			+= dai/vbc_v4/fe_dai/
 obj-$(CONFIG_SND_SOC_UNISOC_TDM)			+= dai/tdm/
 obj-$(CONFIG_SND_SOC_UNISOC_DUMMY_CODEC)		+= codec/dummy-codec/
 obj-$(CONFIG_SND_SOC_UNISOC_HEADSET_FSA4480)		+= fsa4480/
+obj-$(CONFIG_SND_SOC_UNISOC_PA_AW87XXX)			+= codec/aw87xxx/
 obj-$(CONFIG_SND_SOC_UNISOC_CODEC_UMP9620)		+= codec/ump9620/codec/
 obj-$(CONFIG_SND_SOC_UNISOC_CODEC_UMP9620_POWER)	+= codec/ump9620/power/
 obj-$(CONFIG_SND_SOC_UNISOC_CODEC_UMP9620_POWER_DEV)	+= codec/ump9620/power_dev/

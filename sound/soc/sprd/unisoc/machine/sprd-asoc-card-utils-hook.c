@@ -201,38 +201,6 @@ static int hook_general_spk(int id, int on)
 
 extern int gPA_type;
 
-extern int sipa_audio_power_scene_set(int on);
-
-static int hook_general_spk_for_sia8xx(int id, int on)
-{
-	int ret = -1;
-	sp_asoc_pr_info("%s enter id: %d, on: %d\n", __func__, id, on);
-	if (on) {
-		ret = sipa_audio_power_scene_set(on);
-		if (0 != ret) {
-			pr_err("%s sipa power on fail!\n", __func__);
-			return -EINVAL;
-		}
-	} else {
-		ret = sipa_audio_power_scene_set(on);
-		if (0 != ret) {
-			pr_err("%s sipa power off fail!\n", __func__);
-			return -EINVAL;
-		}
-	}
-	msleep(22);
-	return HOOK_OK;
-}
-
-extern int frsm_i2ca_spk_switch(int spkid, bool on);
-
-static int hook_general_spk_for_fs1815(int id, int on) {
-	int ret = -1;
-	sp_asoc_pr_info("%s enter id: %d, on: %d\n", __func__, id, on);
-	ret = frsm_i2ca_spk_switch(1, on);
-	return HOOK_OK;
-}
-
 extern int aw87xxx_set_profile(int dev_index, char *profile);
 static char *aw_profile[]={"Music","Off"};
 static int hook_general_spk_for_aw87xxx(int id, int on) {
@@ -245,10 +213,19 @@ static int hook_general_spk_for_aw87xxx(int id, int on) {
 	return HOOK_OK;
 }
 
+/*
+ * The index into this array is what "sprd,spk-ext-pa-info" in the device tree
+ * selects, so the order is ABI against the dtb we boot with.  This board's
+ * stock dtb has <0 1 1 0>, i.e. hook 1 for the speaker, and its aw87xxx_pa sits
+ * on i2c-6 at 0x58 - so entry 1 must be the aw87xxx hook.
+ *
+ * Upstream's table has sia8xx and fs1815 at 1 and 2, which would both select
+ * the wrong amplifier here and pull in sipa_audio_power_scene_set() /
+ * frsm_i2ca_spk_switch() from snd-soc-sipa / snd-soc-frsm-v5 - neither of which
+ * is imported, so the module would not even load.  Both hooks are dropped.
+ */
 static struct sprd_asoc_ext_hook_map ext_hook_arr[] = {
 	{"general_speaker", hook_general_spk, EN_LEVEL},
-    {"hook_general_spk_for_sia8xx", hook_general_spk_for_sia8xx, !EN_LEVEL},
-    {"hook_general_spk_for_fs1815", hook_general_spk_for_fs1815, !EN_LEVEL},
 	{"hook_general_spk_for_aw87xxx", hook_general_spk_for_aw87xxx, !EN_LEVEL},
 };
 
@@ -359,9 +336,8 @@ static int sprd_asoc_card_parse_hook(struct device *dev,
 
 		pr_info("ext_ctrl_type %d hook_sel %d priv_data %d gpio %d",
 			ext_ctrl_type, hook_sel, priv_data, ret);
-		if(!strcmp(ext_hook_arr[hook_sel].name,"hook_general_spk_for_sia8xx") ||
-		   !strcmp(ext_hook_arr[hook_sel].name,"hook_general_spk_for_fs1815") ||
-		   !strcmp(ext_hook_arr[hook_sel].name,"hook_general_spk_for_aw87xxx"))
+		if (!strcmp(ext_hook_arr[hook_sel].name,
+			    "hook_general_spk_for_aw87xxx"))
 		{
 			pr_info("Gpio[%d] will be requested by sipa driver owi,\n",hook_spk_priv.gpio[ext_ctrl_type]);
 			continue;

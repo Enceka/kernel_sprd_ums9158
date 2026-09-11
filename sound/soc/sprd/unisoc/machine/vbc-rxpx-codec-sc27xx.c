@@ -25,7 +25,6 @@
 
 #define SNDRV_HWDEP_IOCTL_MMAP_FD	_IOW('H', 0x04, int)
 
-extern int soc_codec_conf_sipa(struct platform_device *pdev, struct snd_soc_card *card);
 
 static struct sprd_dfm_priv priv_dfm;
 struct sprd_dfm_priv dfm_priv_get(void)
@@ -262,10 +261,14 @@ static int vbc_rxpx_codec_sc27xx_probe(struct platform_device *pdev)
 	card->num_dapm_widgets = sprd_asoc_card_widgets.size;
 
 	card->late_probe = vbc_rxpx_codec_sc27xx_late_probe;
-	ret = soc_codec_conf_sipa(pdev, card);
-	if (ret < 0) {
-		pr_err("%s: soc_codec_conf_sipa failed!\n", __func__);
-	}
+	/*
+	 * Upstream calls soc_codec_conf_sipa() here, which lives in
+	 * snd-soc-sipa - a smart-PA driver for hardware this board does not
+	 * have, and which is not imported.  The stock snd-soc-sprd-card.ko has
+	 * no such reference either (its only vendor-PA import is
+	 * aw87xxx_set_profile), and the return value was only ever logged, so
+	 * the call is dropped rather than pulling in that driver.
+	 */
 	ret = asoc_sprd_register_card(&pdev->dev, card);
 	if (ret < 0)
 		goto error;
