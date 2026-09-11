@@ -306,6 +306,18 @@ sprd_fm  sprdbt_tty  sprd_wlan_combo  wcn_bsp(被前三者共同依赖)
 - `649c88cff` —— 4 处 K&R 风格的 `()` 定义（`get_project_name` ×2、
   `get_rfboard_id` ×2）触发 `-Werror=strict-prototypes`。
 
+把验证范围扩到本轮之外的两个旧模块时，**发现本会话自己引入的一个回归**
+（`c871cdd8c` 已修）：`e1d32e45d` 同步共享头文件时，把 OPPO 树里的
+`extern void gnss_hold_cpu(void);` 一并带进了 `include/misc/wcn_bus.h`，
+而本树 `sprdwcn/platform/gnss_dump.c` 里这个函数是 `static` 的 →
+`static declaration follows non-static declaration`，`wcn_bsp` 直接编不过。
+本树内除 `gnss_dump.c` 自身外无人引用它，已删掉该声明。
+**教训**：同步上游共享头文件时，新增的 `extern` 声明必须逐条对照本树里是否已有
+`static` 的同名定义 —— 这类冲突不会在被导入的新驱动里暴露，只会打断旧模块。
+
+`wcn_bsp` / `gnss_common_ctl_all` / `gnss_pmnotify_ctl` / `gnss_dbg` 随后均编译
+链接通过，且产出名与设备上原厂 `.ko` 逐一对应。
+
 顺带从原厂 `.ko` 的 DWARF 里看到一条信息：它的源码路径是
 `.../SPRD_A13_5G/bsp/modules/**kernel5.4**/wcn/wlan/wlan_combo/`，
 即**原厂跑的是 5.4 版驱动**，而我们导入的是 OPPO 那棵树的 5.15 版。两者行为差异
@@ -321,8 +333,8 @@ sprd_fm  sprdbt_tty  sprd_wlan_combo  wcn_bsp(被前三者共同依赖)
 3. ~~移植触摸驱动~~ → ~~编译~~ **均已完成**（§5）：已启用并编译通过；
    真机行为（probe、坐标、`tlsc_*` sysfs 节点缺失的影响）仍待刷机验证；
 4. ~~WCN 编译验证~~ **已完成**（§5b）：`sprd_fm` / `sprdbt_tty` /
-   `sprd_wlan_combo` 均编译链接通过。**注意 `wcn_bsp`（`sprdwcn/`）不在本轮验证
-   范围内** —— 它是更早（2020 版）导入的，本轮只编了新导入的那三个；
+   `sprd_wlan_combo` / `wcn_bsp` / `gnss_common_ctl_all` / `gnss_pmnotify_ctl` /
+   `gnss_dbg` 全部编译链接通过；
 5. 把「按 `modules.order` 全量替换 + depmod + 登记 fs_config/file_contexts」
    固化成一个 `repack_vendor_dlkm.sh`，避免 §3 的坑再犯；
 6. defconfig 里 `CONFIG_SPRD_MEMDISK` 被赋值两次（667 行 `=m`、907 行
