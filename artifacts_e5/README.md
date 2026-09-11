@@ -10,6 +10,13 @@ footer headroom, boot.img kernel-region headroom). See
 `diagnostics_2026-09-09.md` before trusting the "fixed" framing in the
 vendor_boot section below - it documents attempts, not a confirmed fix.
 
+**2026-09-12**: systematic driver-gap pass against the newly cloned vendor
+trees - 130 stock modules cross-checked against what this tree can build and
+against what actually binds hardware on the device; 24 modules imported (audio
+stack + VPU).  See `driver_gap_2026-09-12.md`, which also records what is
+confirmed to have no source anywhere (aw322xx_charger, the camera group) and
+why sprd-jpg cannot be imported.
+
 ## Build inputs
 
 - Base kernel: Google android13-5.15 (5.15.211 GKI, commit 21bbfb609)
