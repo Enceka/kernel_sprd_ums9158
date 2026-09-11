@@ -243,4 +243,6 @@ source "drivers/trusty/Kconfig"
 
 source "drivers/gpu/arm/Kconfig"
 
+source "drivers/vendor/Kconfig"
+
 endmenu
