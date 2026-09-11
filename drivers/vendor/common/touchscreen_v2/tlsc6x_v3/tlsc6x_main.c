@@ -963,13 +963,13 @@ static struct tlsc6x_platform_data *tlsc6x_parse_dt(struct device *dev)
 		return NULL;
 	}
 
-	pdata->reset_gpio_number = of_get_gpio(np, 0);
+	pdata->reset_gpio_number = of_get_named_gpio(np, "tlsc6x,reset-gpio", 0);
 	if (pdata->reset_gpio_number < 0) {
 		tlsc_err("fail to get reset_gpio_number\n");
 		goto fail;
 	}
 
-	pdata->irq_gpio_number = of_get_gpio(np, 1);
+	pdata->irq_gpio_number = of_get_named_gpio(np, "tlsc6x,irq-gpio", 0);
 	if (pdata->irq_gpio_number < 0) {
 		tlsc_err("fail to get irq_gpio_number\n");
 		goto fail;
