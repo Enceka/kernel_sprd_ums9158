@@ -2089,9 +2089,24 @@ static int aw32257_probe(struct i2c_client *client,
 	else if (of_device_is_compatible(regmap_np->parent, "sprd,sc2730"))
 		bq->charger_pd_mask = AW32257_DISABLE_PIN_MASK_2730;
 	else {
-		dev_err(dev, "failed to get charger_pd mask\n");
-		ret = -EINVAL;
-		goto error_1;
+		/*
+		 * The board PMIC is sprd,ump9620, which is none of the sc27xx
+		 * parts this table knows about.  The stock 5.15.119 driver
+		 * registers aw322xx_charger on this very board without ever
+		 * touching the PMIC - its dmesg contains no charger_pd or
+		 * syscon line at all - and CONFIG_CHARGE_PD is off here, so
+		 * charging is driven by the AW32257_CHARGER_ENABLE command
+		 * over i2c rather than by gating a PMIC pin.
+		 *
+		 * Treat an unknown PMIC as "no PMIC gating": a zero mask makes
+		 * every regmap_update_bits() on charger_pd a no-op, which keeps
+		 * the probe alive.  Failing here with -EINVAL instead left
+		 * 64a00000.usb stuck at -EPROBE_DEFER forever, because this
+		 * charger is one of its fw_devlink suppliers.
+		 */
+		dev_warn(dev, "unknown PMIC %s, no charger_pd gating\n",
+			 regmap_np->parent ? regmap_np->parent->name : "?");
+		bq->charger_pd_mask = 0;
 	}
 
 	regmap_pdev = of_find_device_by_node(regmap_np);
