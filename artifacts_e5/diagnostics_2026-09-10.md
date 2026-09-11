@@ -358,8 +358,12 @@ fastboot reboot
      `ion_tipc_{read,write,init,exit}` 给别的驱动调用，整棵树里没有任何地方真的调用它
      ——真正应该调用它的 ION secure heap 那部分代码根本没被移植过来。要接这个得先把调用
      方也找到/移植，不是加一行 Kconfig 能解决的，先不动。
-5. **确认无源码**：`sprd_wlan_combo` `sprdbt_tty` `sprd_fm`（WCN/WiFi）、`aw322xx-charger`、
-   `snd-soc-sprd-pa-aw87xxx`、`snd-soc-fsa4480`、`sprd_power_stat`。
+5. **确认无源码**：~~`sprd_wlan_combo` `sprdbt_tty` `sprd_fm`（WCN/WiFi）~~
+   **2026-09-11 已从 `android_kernel_modules_and_devicetree_oppo_ums9230` 导入**（对应
+   `sc2355-sdio-wifi` / `sprd,mtty` / `sprd,marlin3-fm` 三个板级 DT 节点），路径规范到
+   `drivers/unisoc_platform/{sprd_wlan_combo,sprd_bt,sprd_fm}/`，各自独立 commit，暂未在
+   defconfig 里启用、未编译验证。`aw322xx-charger`、`snd-soc-sprd-pa-aw87xxx`、
+   `snd-soc-fsa4480`、`sprd_power_stat` 仍确认无源码。
 6. **触摸不是问题**：`focaltech_*` / `novatek_nt36528` / `sitronix_touch` / `nvt_nt36xxx` /
    `synaptics_td4320` / `tlsc6x` 都不在 vendor `modules.load` 里，原厂也不加载。
 
