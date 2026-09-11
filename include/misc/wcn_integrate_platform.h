@@ -21,6 +21,7 @@
 #ifndef __WCN_INTEGRATE_PLATFORM_H__
 #define __WCN_INTEGRATE_PLATFORM_H__
 #include <linux/regmap.h>
+#include <misc/wcn_bus.h>
 
 #define FALSE								(0)
 #define TRUE								(1)
@@ -136,8 +137,8 @@ void mdbg_dump_gnss_unregister(void);
 
 int start_integrate_wcn(u32 subsys);
 int stop_integrate_wcn(u32 subsys);
-int start_marlin(u32 subsys);
-int stop_marlin(u32 subsys);
+int start_marlin(enum wcn_sub_sys subsys);
+int stop_marlin(enum wcn_sub_sys subsys);
 int wcn_get_gnss_power_status(void);
 int wcn_get_btwf_power_status(void);
 bool wcn_get_download_status(void);
@@ -170,5 +171,6 @@ void wcn_mem_ram_unmap(const void *mem, unsigned int count);
 enum wcn_aon_chip_id wcn_get_aon_chip_id(void);
 void wcn_device_poweroff(void);
 char *gnss_firmware_path_get(void);
+void wcn_set_host_direct_gnss(bool en);
 
 #endif
