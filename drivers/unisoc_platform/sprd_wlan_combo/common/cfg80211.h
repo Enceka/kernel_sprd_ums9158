@@ -19,6 +19,27 @@
 /* parise or group key type */
 #define SPRD_GROUP			(0)
 #define SPRD_PAIRWISE			(1)
+/*
+ * WAPI (GB 15629.11) is a Unisoc extension to enum nl80211_wpa_versions: their
+ * BSP patches the UAPI header, the android13-5.15 GKI header this tree is
+ * based on does not have it, so the driver does not build as-is.
+ *
+ * The value matters - it is the wire format between the stock (WAPI-capable)
+ * wpa_supplicant and the driver - so it was recovered from the stock
+ * /vendor/lib/modules/sprd_wlan_combo.ko rather than guessed: the switch in
+ * sprd_convert_wpa_version() is compiled to a jump table at .rodata+0x1c870,
+ * indexed by (nl80211 value - 1), which maps
+ *     1 -> SPRD_WPA_VERSION_1 (BIT(0))
+ *     2 -> SPRD_WPA_VERSION_2 (BIT(1))
+ *     4 -> SPRD_WPA_VERSION_3 (BIT(3))
+ *     8 -> SPRD_WAPI_VERSION_1 (BIT(2))
+ * i.e. Unisoc kept the upstream NL80211_WPA_VERSION_3 = 1 << 2 and appended
+ * WAPI at 1 << 3.  (Note the SPRD_* bit order below does NOT mirror it.)
+ */
+#ifndef NL80211_WAPI_VERSION_1
+#define NL80211_WAPI_VERSION_1		(1 << 3)
+#endif
+
 /* WPA version */
 #define SPRD_WPA_VERSION_NONE		(0)
 #define SPRD_WPA_VERSION_1		(BIT(0))
