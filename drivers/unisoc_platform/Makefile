@@ -28,6 +28,7 @@ obj-$(CONFIG_UNISOC_IOMMU)	+= iommu/
 obj-$(CONFIG_UNISOC_MODEM)	+= modem/
 obj-$(CONFIG_UNISOC_SCHED)	+= sched/
 obj-$(CONFIG_UNISOC_WCN_BSP)	+= sprdwcn/
+obj-$(CONFIG_UNISOC_WLAN_COMBO)	+= sprd_wlan_combo/
 obj-$(CONFIG_SPRD_HANG_DEBUG) 	+= hang_debug/
 obj-$(CONFIG_SPRD_UNISOC_MANUFACTURER_MODULE) += sprd_manufacturer_module.o
 obj-$(CONFIG_UNISOC_USERLOG)    += userlog/
