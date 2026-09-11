@@ -70,8 +70,9 @@ vendor 的 Kbuild 按 `BSP_KERNEL_BUILD_CONFIG` 分支定义 `-D` 宏。
 - **外置 PA**：`snd-soc-sprd-card.ko` 是从 `sprd-asoc-card-utils-hook.c` /
   `-legacy.c` 编的，**不是 `_14c10` 变体** → 原厂用的是
   `BSP_BOARD_AUDIO_EXTPA=false` 分支。
-  值得注意：这与"设备上 `snd-soc-sprd-pa-aw87xxx` 绑定了 1 个设备"看起来矛盾，
-  但机器码不会骗人，按 hook/legacy 走。
+  这一度看起来与"设备上 `snd-soc-sprd-pa-aw87xxx` 绑定了 1 个设备"矛盾，
+  **§2.7 解开了**：原厂没用 `_14c10` 变体，而是把 aw87xxx 的 hook 直接加进了
+  普通的 `hook.c`。
 - **FSA4480**：`snd-soc-sprd-codec-ump9620.ko` 的 DWARF 里确实有
   `vender/audio/fsa4480/fsa4480-i2c.h` → `CONFIG_SND_SOC_HEADSET_FSA4480` 是开的，
   所以把 fsa4480 一并导入了。
@@ -183,8 +184,10 @@ OPPO 原表第 1 号是 **sia8xx**，直接用会去驱动错误的功放芯片�
 
 ## 6. 下一步
 
-1. 决定是否在 `e5_rongyue_defconfig` 启用本轮导入的 24 个模块
-   （音频 23 + VPU 1）—— 一次性打开较多，建议和一次可刷机的验证一起做；
+1. 决定是否在 `e5_rongyue_defconfig` 启用本轮导入的 25 个模块
+   （音频 24 + VPU 1）—— 一次性打开较多，建议和一次可刷机的验证一起做。
+   注意 `SND_SOC_UNISOC_PA_AW87XXX` 必须与 `SND_SOC_UNISOC_CARD` 同开，
+   否则 card 里的 `aw87xxx_set_profile()` 无法解析；
 2. `CONFIG_UNISOC_AUDIO_MCDT_R2P0` 与既有的 mainline `CONFIG_SND_SOC_SPRD_MCDT`
    是同一块硬件的两个驱动。原厂只有 `mcdt_hw_r2p0.ko`、没有 `sprd-mcdt.ko`，
    **两者不应同时开**。当前 defconfig 开的是 mainline 那个，未处理；
