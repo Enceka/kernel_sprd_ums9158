@@ -1138,6 +1138,14 @@ static int aw32257_charger_register_vbus_regulator(struct aw32257_device *info)
 	} while (0)
 
 #define _BATTERY_NAME				"sc27xx-fgu"
+
+/*
+ * Name this driver registers its power supply under.  charger-manager
+ * looks the charger up by this exact string - it logs "Cannot find
+ * power supply \"aw322xx_charger\"" on every retry otherwise - and the
+ * stock 5.15.119 system registers it under the same name.
+ */
+#define AW32257_PSY_NAME			"aw322xx_charger"
 static bool aw32257_charger_is_bat_present(struct aw32257_device *info)
 {
 	struct power_supply *psy;
@@ -2017,7 +2025,8 @@ static int aw32257_probe(struct i2c_client *client,
 	if (id)
 		bq->chip = id->driver_data;
 
-	dev_info(dev, "id name = %s\n", id->name);
+	/* Matched through of_device_id on this board, so id is NULL. */
+	dev_info(dev, "id name = %s\n", id ? id->name : AW32257_PSY_NAME);
 	bq->dev = dev;
 	bq->mode = AW32257_MODE_OFF;
 	bq->reported_mode = AW32257_MODE_OFF;
@@ -2043,7 +2052,15 @@ static int aw32257_probe(struct i2c_client *client,
 		goto error_1;
 	}
 
-	regmap_np = of_find_compatible_node(NULL, NULL, "sprd,sc27xx-syscon");
+	/*
+	 * The board names this block sprd,ump962x-syscon (the UMS9621
+	 * spelling); sc27xx is the older-tree name.  Without a match the
+	 * probe fails with -ENODEV and 64a00000.usb never leaves
+	 * -EPROBE_DEFER, since this node is one of its suppliers.
+	 */
+	regmap_np = of_find_compatible_node(NULL, NULL, "sprd,ump962x-syscon");
+	if (!regmap_np)
+		regmap_np = of_find_compatible_node(NULL, NULL, "sprd,sc27xx-syscon");
 	if (!regmap_np) {
 		dev_err(dev, "unable to get syscon node\n");
 		ret =  -ENODEV;
@@ -2097,7 +2114,12 @@ static int aw32257_probe(struct i2c_client *client,
 	INIT_WORK(&bq->work, aw32257_charger_work);
 	INIT_DELAYED_WORK(&bq->otg_work, aw32257_charger_otg_work);
 
-	bq->charger_desc.name = id->name;
+	/*
+	 * The board matches this driver through of_device_id, so id is NULL
+	 * and the supply used to end up nameless.  Use the vendor name the
+	 * stock system registers, falling back to the i2c id when present.
+	 */
+	bq->charger_desc.name = id ? id->name : AW32257_PSY_NAME;
 
 	ret = aw32257_power_supply_init(bq, np);
 	if (ret) {
