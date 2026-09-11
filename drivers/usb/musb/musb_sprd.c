@@ -2135,6 +2135,35 @@ static int musb_sprd_probe(struct platform_device *pdev)
 		pdata.mode = MUSB_HOST;
 	else if (IS_ENABLED(CONFIG_USB_MUSB_DUAL_ROLE)) {
 		enum usb_dr_mode mode = usb_get_dr_mode(dev);
+
+		/*
+		 * usb_get_dr_mode() looks up the standard "dr_mode" spelling,
+		 * but this dts writes "dr-mode", so it reports UNKNOWN and the
+		 * mode used to fall through to MUSB_OTG below.  In OTG the
+		 * controller runs its OTG state machine and never soft
+		 * connects, which left adb offline:
+		 *
+		 *   musb dr_mode: 3                      <- MUSB_OTG
+		 *   sm_work: undefined state
+		 *   sprd_musb_enable:SOFTDISCONN
+		 *
+		 * Stock stays in peripheral mode, so accept the hyphenated name
+		 * as well before deciding.
+		 */
+		if (mode == USB_DR_MODE_UNKNOWN) {
+			const char *str;
+
+			if (!of_property_read_string(dev->of_node, "dr-mode",
+						     &str)) {
+				if (!strcmp(str, "host"))
+					mode = USB_DR_MODE_HOST;
+				else if (!strcmp(str, "peripheral"))
+					mode = USB_DR_MODE_PERIPHERAL;
+				else if (!strcmp(str, "otg"))
+					mode = USB_DR_MODE_OTG;
+			}
+		}
+
 		if (mode == USB_DR_MODE_HOST)
 			pdata.mode = MUSB_HOST;
 		else if (mode == USB_DR_MODE_PERIPHERAL)
