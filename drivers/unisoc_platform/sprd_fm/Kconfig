@@ -1,0 +1,17 @@
+#
+# Unisoc FM device configuration
+#
+menu "Unisoc FM Device Drivers"
+
+config UNISOC_WCN_FM
+	tristate "SPRD_FM"
+	depends on UNISOC_WCN_BSP
+	help
+	  FM radio driver for the Unisoc WCN combo chip (marlin3 and
+	  later), talking to the WCN core over the sprdwcn bus. Builds
+	  sprd_fm.ko.
+
+	  If you want to use the FM receiver on a 23xx-series Unisoc WCN
+	  chip, say Y or M here.
+
+endmenu
