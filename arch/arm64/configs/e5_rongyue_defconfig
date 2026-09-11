@@ -537,7 +537,12 @@ CONFIG_USB_STORAGE=y
 CONFIG_USB_UAS=y
 CONFIG_USB_MUSB_HDRC=m
 CONFIG_USB_MUSB_SPRD=m
-CONFIG_USB_SPRD_DMA=m
+# DIAGNOSTIC: the stock build links sprd_musbhsdma (DMA), but on this build
+# bulk transfers never reach adbd while control transfers and the whole
+# enumeration path work, and other DMA users (spi/i2c) fail their channel
+# requests with -19.  Try PIO-only to find out whether the musb DMA engine
+# is what is eating ADB's bulk endpoints.
+# CONFIG_USB_SPRD_DMA is not set
 CONFIG_MUSB_SPRD_LOWPOWER=y
 CONFIG_USB_SPRD_DMA_V3=y
 /*
