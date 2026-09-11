@@ -1940,38 +1940,58 @@ static int aw32257_dts_init(struct aw32257_device *bq, struct device_node *np)
 	}
 #endif
 
-	ret = device_property_read_u32(bq->dev,
-				       "ti,current-limit",
-				       &bq->init_data.current_limit);
-	if (ret)
-		goto error_3;
-	ret = device_property_read_u32(bq->dev,
-				       "ti,weak-battery-voltage",
-				       &bq->init_data.weak_battery_voltage);
-	if (ret)
-		goto error_3;
-	ret = device_property_read_u32(bq->dev,
-				       "ti,battery-regulation-voltage",
-				       &bq->init_data.battery_regulation_voltage);
-	if (ret)
-		goto error_3;
-	ret = device_property_read_u32(bq->dev,
-				       "ti,charge-current",
-				       &bq->init_data.charge_current);
-	if (ret)
-		goto error_3;
-	ret = device_property_read_u32(bq->dev,
-				       "ti,termination-current",
-				       &bq->init_data.termination_current);
-	if (ret)
-		goto error_3;
-	ret = device_property_read_u32(bq->dev,
-				       "ti,resistor-sense",
-				       &bq->init_data.resistor_sense);
-	if (ret)
-		goto error_3;
-error_3:
-	return ret;
+	/*
+	 * The E5 board uses the awinic vendor prefix and carries none of the
+	 * ti,* tuning values:
+	 *
+	 *     charger@6a {
+	 *             aw322xx,r_sns = <0x21>;
+	 *             compatible = "awinic,aw322xx_chg";
+	 *     };
+	 *
+	 * Every read below used to be "if (ret) goto error_3", so on this board
+	 * the probe always bailed out.  That left 64a00000.usb (MUSB) in
+	 * -EPROBE_DEFER forever - this node is one of its suppliers - and took
+	 * both USB and the battery power supply down with it.
+	 *
+	 * Order: awinic name, then ti,* (for trees using the original
+	 * bindings), then an explicit default.  The defaults are what the stock
+	 * 5.15.119 driver ends up with, read off the running device:
+	 *     constant_charge_current = 496000
+	 *     input_current_limit     = 500000
+	 *     r_sns                   = 33    (= aw322xx,r_sns = <0x21>)
+	 *
+	 * This only selects the limits the charge worker uses; it does not
+	 * drive hardware, and every value has a fallback.
+	 */
+#define AW32257_READ_PROP(field, ti_name, aw_name, dflt)			\
+	do {									\
+		if (device_property_read_u32(bq->dev, aw_name, &(field))) {	\
+			if (device_property_read_u32(bq->dev, ti_name,		\
+						     &(field)))			\
+				(field) = (dflt);				\
+		}								\
+	} while (0)
+	AW32257_READ_PROP(bq->init_data.current_limit,
+			  "ti,current-limit",
+			  "aw322xx,input-current-limit", 500000);
+	AW32257_READ_PROP(bq->init_data.weak_battery_voltage,
+			  "ti,weak-battery-voltage",
+			  "aw322xx,weak-battery-voltage", 3400000);
+	AW32257_READ_PROP(bq->init_data.battery_regulation_voltage,
+			  "ti,battery-regulation-voltage",
+			  "aw322xx,battery-regulation-voltage", 4200000);
+	AW32257_READ_PROP(bq->init_data.charge_current,
+			  "ti,charge-current",
+			  "aw322xx,charge-current", 496000);
+	AW32257_READ_PROP(bq->init_data.termination_current,
+			  "ti,termination-current",
+			  "aw322xx,termination-current", 100000);
+	AW32257_READ_PROP(bq->init_data.resistor_sense,
+			  "ti,resistor-sense",
+			  "aw322xx,r_sns", 33);
+#undef AW32257_READ_PROP
+	return 0;
 }
 
 static int aw32257_probe(struct i2c_client *client,
@@ -2155,6 +2175,11 @@ static int aw32257_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id aw32257_i2c_id_table[] = {
+	/* bq->charger_desc.name = id->name and charger-manager looks the
+	 * supply up by that name (it logs "Cannot find power supply
+	 * aw322xx_charger" otherwise).  The old name is kept for dtbs
+	 * that match this i2c driver by name. */
+	{ "aw322xx_charger", 0 },
 	{ "aw32257", 0 },
 	{},
 };
@@ -2163,6 +2188,8 @@ MODULE_DEVICE_TABLE(i2c, aw32257_i2c_id_table);
 #ifdef CONFIG_OF
 static const struct of_device_id aw32257_of_match_table[] = {
 	{ .compatible = "aw32257" },
+	/* The E5 board uses the awinic vendor name - see aw32257_dts_init. */
+	{ .compatible = "awinic,aw322xx_chg" },
 	{},
 };
 MODULE_DEVICE_TABLE(of, aw32257_of_match_table);
