@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: GPL-2.0
+#
+# TLSC6X touchscreen driver configuration
+#
+# Upstream declares this 'bool' (built-in only).  Changed to tristate so it can
+# be built as tlsc6x_ts.ko, matching how the stock 5.15.119 vendor_dlkm ships
+# it (/lib/modules/tlsc6x.ko).
+#
+
+config TOUCHSCREEN_TLSC6X_V3
+	tristate "Chipsemicorp TLSC6X touchscreen"
+	depends on I2C
+	depends on TOUCHSCREEN_VENDOR_V2
+	default n
+	help
+	  Say Y here if you have tlsc6x touch panel.
+	  If unsure, say N.
