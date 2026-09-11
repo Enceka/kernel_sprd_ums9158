@@ -26,6 +26,15 @@ enum wcn_hard_intf_type {
 	HW_TYPE_INVALIED
 };
 
+enum wcn_chr_loglevel {
+	WCN_CHR_UNIVIEW = 1,
+	WCN_CHR_ERROR,
+	WCN_CHR_WARN,
+	WCN_CHR_INFO,
+	WCN_CHR_DEBUG,
+	WCN_CHR_MAX,
+};
+
 enum wcn_sub_sys {
 	MARLIN_BLUETOOTH = 0,
 	MARLIN_FM,
@@ -57,7 +66,8 @@ enum wcn_source_type {
 	WCN_SOURCE_BTWF,
 	WCN_SOURCE_GNSS,
 	WCN_SOURCE_WCN,
-	WCN_SOURCE_CP2_ALIVE  /*notify slogmodem wcn cp2 alive*/
+	WCN_SOURCE_CP2_ALIVE,  /*notify slogmodem wcn cp2 alive*/
+	WCN_SOURCE_SP_RESET    /*reset wcn cp2*/
 };
 
 enum wcn_bus_state {
@@ -325,9 +335,14 @@ struct sprdwcn_bus_ops {
 	void (*debug_point_show)(void);
 	int (*pm_qos)(unsigned int mode, bool set);
 	bool (*is_suspended)(bool important);
+	int (*chr_report)(enum wcn_source_type type,
+					enum wcn_chr_loglevel loglevel,
+					uint32_t event_id,
+					void *params, uint8_t len);
 };
 
 extern struct atomic_notifier_head wcn_reset_notifier_list;
+extern struct atomic_notifier_head modem_n79_notifier_list;
 
 extern void module_bus_init(void);
 extern void module_bus_deinit(void);
@@ -343,6 +358,11 @@ void mdbg_device_unlock_notify(void);
 extern void wcn_pm_qos_enable(void);
 extern void wcn_pm_qos_disable(void);
 extern void wcn_pm_qos_reset(void);
+extern void gnss_hold_cpu(void);
+extern int wcn_check_module_status(u32 subsys);
+extern void wcn_set_host_direct_gnss(bool en);
+extern void gnss_clear_outbox_fifo(void);
+extern void mdbg_wcn_source_ctl(enum wcn_source_type type, char *str);
 
 static inline
 int sprdwcn_bus_preinit(void)
@@ -775,6 +795,20 @@ static inline
 void wcn_bus_deinit(void)
 {
 	module_bus_deinit();
+}
+
+static inline
+int sprdwcn_bus_chr_report(enum wcn_source_type type,
+						enum wcn_chr_loglevel loglevel,
+						uint32_t event_id,
+						void *params, uint8_t len)
+{
+	struct sprdwcn_bus_ops *bus_ops = get_wcn_bus_ops();
+
+	if (!bus_ops || !bus_ops->chr_report)
+		return 0;
+
+	return bus_ops->chr_report(type, loglevel, event_id, params, len);
 }
 
 #endif
