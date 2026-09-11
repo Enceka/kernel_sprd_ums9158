@@ -318,10 +318,53 @@ sprd_fm  sprdbt_tty  sprd_wlan_combo  wcn_bsp(被前三者共同依赖)
 `wcn_bsp` / `gnss_common_ctl_all` / `gnss_pmnotify_ctl` / `gnss_dbg` 随后均编译
 链接通过，且产出名与设备上原厂 `.ko` 逐一对应。
 
-顺带从原厂 `.ko` 的 DWARF 里看到一条信息：它的源码路径是
-`.../SPRD_A13_5G/bsp/modules/**kernel5.4**/wcn/wlan/wlan_combo/`，
-即**原厂跑的是 5.4 版驱动**，而我们导入的是 OPPO 那棵树的 5.15 版。两者行为差异
-未评估。
+### 我们导入的源码 vs 原厂 `.ko`：实测差异
+
+**先更正一处此前写错的结论。** 我一度根据原厂 `.ko` 的 DWARF 源码路径
+（`.../SPRD_A13_5G/bsp/modules/kernel5.4/wcn/wlan/wlan_combo/`，53268 处引用，
+`kernel5.15` 0 处）判断「原厂跑的是 5.4 版驱动」——**这个说法是错的**。
+同一份 DWARF 里：
+
+| 字段 | 值 |
+|---|---|
+| 源码路径 | `bsp/modules/**kernel5.4**/wcn/wlan/wlan_combo/` |
+| `DW_AT_comp_dir` | `out_abi/android13-5.15/**kernel5.15**` |
+| `DW_AT_producer` | `clang version 14.0.7`（android13-5.15 参考工具链）|
+| `vermagic` | `5.15.119-android13-8-gf0c1c2c751e6-dirty` |
+
+即：**目录名是 Unisoc BSP 的布局遗留，这份代码本来就是为 5.15.119 编的。**
+（驱动源码里本身带 `#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,15,0)` 分支，
+一份源码跨内核版本，所以目录名不能当版本依据。）
+
+真正的差异要比对文件集合。从 DWARF 抽出原厂实际编进去的 134 个源文件，
+与我们导入的 95 个对比：
+
+**原厂有、我们完全没有：**
+- 整个 `merlion/` 子目录（58 个文件：自带 `cfg80211.c` / `cmdevt.c` /
+  `core_sc2355.c` / `main.c` / `txrx.c` / `sprdwl.h` …，是一份**并行的、
+  另一代**驱动实现，符号前缀 `sprdwl_`）。原厂 `.ko` 里 `sprdwl_*` 符号 **644** 个、
+  `sprd_*` 符号 227 个 —— merlion 那半其实是更大的一半。
+  **这个目录在我们树里和 OPPO 那棵树里都不存在。**
+- `sc2355/nan.c`（Wi-Fi Aware）—— 已确认**不是导入时漏了**，OPPO 的 kernel5.15
+  分支里也没有这个文件。
+
+**我们编、原厂那次构建没编：** `common/apf.o`、`common/chr.o`、
+`common/wifi_config.o`、`sc2355/cpu_performance.o`、`sc2355/hw_sipc_param.o`、
+`sc2355/sipc.o`、`sc2355/sipc_buf.o`、`sc2332/sdio.o`。
+注意这一侧证据较弱：DWARF 只反映**实际编进去的**文件，分不清「原厂源码里没有」
+和「原厂源码里有但被 Kbuild 条件排除了」。
+
+**但真正给这台设备绑定的那条路径是同一份代码**，这点可以确证：
+- 原厂 `.ko` 里存在 `sprd_wlan_driver`、`wlan_global_match_table` 这两个符号 ——
+  正是我们 `common/sprd_wlan.c` 里的那张表；
+- 两边声明的 of compatible **完全一致**：`sprd,sc2332-sipc-wifi`、
+  `sprd,sc2355-pcie-wifi`、`sprd,sc2355-sdio-wifi`、`sprd,sc2355-sipc-wifi`
+  （我们源码里的 `sc2332-sdio` 在 `#if 0` 内，不进表，原厂 alias 里同样没有）；
+- 设备上实际绑定的是 platform driver `wlan` ←→ `sprd-marlin3:wlan`，
+  节点 compatible `sprd,sc2355-sdio-wifi`，落在上面这张表里。
+
+所以 merlion 那半对这颗芯片是不参与匹配的旁路代码。**结论：功能集合有差异
+（我们多了 apf/chr/wifi_config 等，少了 NAN 和 merlion），但绑定路径一致。**
 
 ---
 
@@ -337,9 +380,21 @@ sprd_fm  sprdbt_tty  sprd_wlan_combo  wcn_bsp(被前三者共同依赖)
    `gnss_dbg` 全部编译链接通过；
 5. 把「按 `modules.order` 全量替换 + depmod + 登记 fs_config/file_contexts」
    固化成一个 `repack_vendor_dlkm.sh`，避免 §3 的坑再犯；
-6. defconfig 里 `CONFIG_SPRD_MEMDISK` 被赋值两次（667 行 `=m`、907 行
-   `is not set`），每次构建都会告警 `override: reassigning to symbol`。
-   后者生效（即实际是关闭的），但哪个才是本意不明确，没有擅自删 —— 需要确认。
+6. ~~defconfig 里 `CONFIG_SPRD_MEMDISK` 被赋值两次~~ **已确认并清理**
+   （`8b02466bc`）：设备侧实测**完全没用上** —— `/sys/firmware/devicetree/base`
+   下 381 个 compatible 节点全扫，memdisk 命中 0（控制组 marlin3lite 命中 1），
+   `/proc/devices`、`/proc/partitions`、`/vendor/lib/modules` 里也都没有；
+   我们的 dts 树里同样没有 `sprd,memdisk` 节点，而驱动 `of_find_compatible_node()`
+   拿不到节点就直接 `-ENODEV`。Unisoc 自己的 8 个 `sprd_gki_*.fragment`
+   （含本 SoC 家族的 `qogirn6l`）也都是 `is not set`。
+   原来那行 `=m` 来自最初的 defconfig（`412169660`），`c3c841a0c` 是在文件末尾
+   追加一行来关掉它、没改原行，删掉陈旧的 `=m` 即可，生成的 `.config` 逐字节不变。
+
+   顺带一个与本机无关但值得记的观察：原厂跑的是 **GKI** 内核，
+   `/proc/config.gz` 里 `# CONFIG_ARCH_SPRD is not set` —— 平台代码全在 vendor
+   模块里，所以 `SPRD_MEMDISK`（`depends on ARCH_SPRD`）在原厂配置下压根不可选。
+   这也提醒：**不能用 `/proc/config.gz` 去核对我们这棵树里任何 `ARCH_SPRD`
+   下的符号**，那份 config 只描述 GKI 那一半。
 
 ## 附：本轮产生的镜像
 
