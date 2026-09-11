@@ -1199,11 +1199,19 @@ int tlsc6x_get_running_cfg(unsigned short *ptcfg)
 
 static int tlsx6x_3535find_lastvaild_ver(void)
 {
+	/*
+	 * find_3535last_valid_burn_cfg() only exists under TLSC_AUTO_UPGRADE:
+	 * it needs the nvm burn ram-code blob, which is compiled in with the
+	 * upgrade path.  Without it, fall through as if no valid burned cfg
+	 * was found - the same state the caller already handles.
+	 */
+#ifdef TLSC_AUTO_UPGRADE
 	if (find_3535last_valid_burn_cfg(tl_buf_tmpcfg) == 0) {
 		g_tlsc6x_cfg_ver = (unsigned int)tl_buf_tmpcfg[1];
 		g_tlsc6x_cfg_ver = (g_tlsc6x_cfg_ver<<16) + (unsigned int)tl_buf_tmpcfg[0];
 		g_tlsc6x_cfg_ver = g_tlsc6x_cfg_ver&0x3ffffff;/* force set sub-version to zero */
 	}
+#endif
 
 	return 0;
 }
