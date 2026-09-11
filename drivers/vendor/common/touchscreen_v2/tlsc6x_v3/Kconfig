@@ -3,7 +3,7 @@
 # TLSC6X touchscreen driver configuration
 #
 # Upstream declares this 'bool' (built-in only).  Changed to tristate so it can
-# be built as tlsc6x_ts.ko, matching how the stock 5.15.119 vendor_dlkm ships
+# be built as tlsc6x.ko, matching how the stock 5.15.119 vendor_dlkm ships
 # it (/lib/modules/tlsc6x.ko).
 #
 
