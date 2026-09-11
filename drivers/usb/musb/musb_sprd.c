@@ -2150,15 +2150,33 @@ static int musb_sprd_probe(struct platform_device *pdev)
 		enum usb_dr_mode mode = usb_get_dr_mode(dev);
 
 		/*
-		 * No "dr_mode" property in this dts (it spells it "dr-mode"),
-		 * so mode ends up USB_DR_MODE_UNKNOWN and pdata.mode lands on
-		 * MUSB_OTG.  That is what stock does too - a stock unit logs
-		 * "musb dr_mode: 3" and still works, and it prints
-		 * "sprd_musb_enable:DONOTHING" where a MUSB_PERIPHERAL build
-		 * instead hits the SOFTDISCONN branch and tears the gadget
-		 * down.  Stay on MUSB_OTG rather than papering over the
-		 * property-name mismatch.
+		 * usb_get_dr_mode() looks up the standard "dr_mode" spelling,
+		 * but this dts writes "dr-mode", so it reports UNKNOWN and the
+		 * mode used to fall through to MUSB_OTG below.  In OTG the
+		 * controller runs its OTG state machine and never soft
+		 * connects, which left adb offline:
+		 *
+		 *   musb dr_mode: 3                      <- MUSB_OTG
+		 *   sm_work: undefined state
+		 *   sprd_musb_enable:SOFTDISCONN
+		 *
+		 * Stock stays in peripheral mode, so accept the hyphenated name
+		 * as well before deciding.
 		 */
+		if (mode == USB_DR_MODE_UNKNOWN) {
+			const char *str;
+
+			if (!of_property_read_string(dev->of_node, "dr-mode",
+						     &str)) {
+				if (!strcmp(str, "host"))
+					mode = USB_DR_MODE_HOST;
+				else if (!strcmp(str, "peripheral"))
+					mode = USB_DR_MODE_PERIPHERAL;
+				else if (!strcmp(str, "otg"))
+					mode = USB_DR_MODE_OTG;
+			}
+		}
+
 		if (mode == USB_DR_MODE_HOST)
 			pdata.mode = MUSB_HOST;
 		else if (mode == USB_DR_MODE_PERIPHERAL)
