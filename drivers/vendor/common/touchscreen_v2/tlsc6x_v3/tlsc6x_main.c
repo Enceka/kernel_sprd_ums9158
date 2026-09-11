@@ -794,7 +794,9 @@ static void tlsc6x_ts_resume(struct early_suspend *handler)
 
 static void tlsc6x_resume_work(struct work_struct *work)
 {
+#ifdef TLSC_TPD_PROXIMITY
 	u8 test_val = 0;
+#endif
 
 	TLSC_FUNC_ENTER();
 
@@ -1325,10 +1327,9 @@ static ssize_t tlsc6x_proc_read(struct file *filp, char __user *page, size_t len
 	return ret;
 }
 
-static struct file_operations tlsc6x_proc_ops = {
-	.owner = THIS_MODULE,
-	.read = tlsc6x_proc_read,
-	.write = tlsc6x_proc_write,
+static const struct proc_ops tlsc6x_proc_ops = {
+	.proc_read = tlsc6x_proc_read,
+	.proc_write = tlsc6x_proc_write,
 };
 
 void tlsc6x_release_apk_debug_channel(void)
