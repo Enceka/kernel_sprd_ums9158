@@ -358,7 +358,6 @@ void mdbg_device_unlock_notify(void);
 extern void wcn_pm_qos_enable(void);
 extern void wcn_pm_qos_disable(void);
 extern void wcn_pm_qos_reset(void);
-extern void gnss_hold_cpu(void);
 extern int wcn_check_module_status(u32 subsys);
 extern void wcn_set_host_direct_gnss(bool en);
 extern void gnss_clear_outbox_fifo(void);
