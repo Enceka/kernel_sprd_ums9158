@@ -74331,7 +74331,7 @@ char *get_project_name_fcc(void)
 	return temp_name;
 }
 
-static char *get_rfboard_id()
+static char *get_rfboard_id(void)
 {
 	struct device_node *cmdline_node;
 	const char *cmd_line = 0;
