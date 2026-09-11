@@ -12,7 +12,9 @@ ccflags-y += -I$(srctree)/drivers/vendor/common/touchscreen_v2/tlsc6x_v3/firmwar
 ccflags-y += -I$(srctree)/drivers/vendor/common/touchscreen_v2/tlsc6x_v3/tlsc_chip3535/
 ccflags-y += -I$(srctree)/drivers/vendor/common/touchscreen_v2/tlsc6x_v3/tlsc_chip3536/
 
-obj-$(CONFIG_TOUCHSCREEN_TLSC6X_V3)  += tlsc6x_ts.o
-tlsc6x_ts-objs := tlsc6x_main.o
-tlsc6x_ts-objs += tlsc6x_comp.o
-tlsc6x_ts-objs += tlsc6x_common_interface.o
+# Module name must stay tlsc6x.ko: that is what the stock vendor_dlkm
+# modules.dep refers to, and what gets modprobe'd on this device.
+obj-$(CONFIG_TOUCHSCREEN_TLSC6X_V3)  += tlsc6x.o
+tlsc6x-objs := tlsc6x_main.o
+tlsc6x-objs += tlsc6x_comp.o
+tlsc6x-objs += tlsc6x_common_interface.o
