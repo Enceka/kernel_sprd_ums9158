@@ -467,7 +467,7 @@ static int hw_param_nvm_parse(struct sprd_priv *priv, const char *path, void *p_
 	return ret;
 }
 
-static char *get_project_name()
+static char *get_project_name(void)
 {
 	struct device_node *cmdline_node;
 	const char *cmd_line = 0;

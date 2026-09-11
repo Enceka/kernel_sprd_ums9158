@@ -499,7 +499,7 @@ static int wifi_nvm_parse(struct sprd_priv *priv, const char *path, void *p_data
 	return ret;
 }
 
-static char *get_project_name()
+static char *get_project_name(void)
 {
 	struct device_node *cmdline_node;
 	const char *cmd_line = 0;
@@ -520,7 +520,7 @@ static char *get_project_name()
 	return temp_name;
 }
 
-static char *get_rfboard_id()
+static char *get_rfboard_id(void)
 {
 	struct device_node *cmdline_node;
 	const char *cmd_line = 0;
