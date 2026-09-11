@@ -604,6 +604,8 @@ int sprd_gsp_get_capability_ioctl(struct drm_device *drm_dev, void *data,
 	struct device *dev = NULL;
 	struct gsp_capability *capa = NULL;
 	size_t size;
+	size_t gsp_id;
+	char version[32];
 
 	priv = drm_dev->dev_private;
 
@@ -612,11 +614,29 @@ int sprd_gsp_get_capability_ioctl(struct drm_device *drm_dev, void *data,
 		return -1;
 	}
 
-	dev = priv->gsp_dev[drm_capa->gsp_id];
+	gsp_id = drm_capa->gsp_id;
+	if (gsp_id > 1) {
+		GSP_ERR("get gsp_id exceed error: %zu\n", gsp_id);
+		return -1;
+	}
+
+	dev = priv->gsp_dev[gsp_id];
 	if (IS_ERR_OR_NULL(dev)) {
 		GSP_ERR("null dev\n");
 		return -1;
 	}
+
+	/*
+	 * drm_gsp_capability carries the board string the HAL is asking about:
+	 * "init" on the first query, then the real name (e.g. "R9P0").  It sits
+	 * between 'size' and 'cap' in the user struct, so it has to be read here
+	 * to keep 'cap' at the offset the prebuilt HAL writes it to - see the ABI
+	 * note in include/uapi/drm/sprd_drm_gsp.h.
+	 */
+	strncpy(version, drm_capa->version, sizeof(version) - 1);
+	version[sizeof(version) - 1] = '\0';
+	GSP_DEV_INFO(dev, "cap req: gsp_id=%zu size=%zu version='%s' cap=%px\n",
+			gsp_id, drm_capa->size, version, drm_capa->cap);
 
 	pdev = to_platform_device(dev);
 	if (IS_ERR_OR_NULL(pdev)) {
