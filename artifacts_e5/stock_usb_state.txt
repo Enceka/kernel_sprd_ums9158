@@ -1,0 +1,219 @@
+== uname ==
+Linux localhost 5.15.119-android13-8-00018-ga78ea39db117-ab10710420 #1 SMP PREEMPT Thu Aug 24 15:38:36 UTC 2023 aarch64 Toybox
+== uptime ==
+3873.09 30360.10
+== cmdline ==
+stack_depot_disable=on
+kasan.stacktrace=off
+kvm-arm.mode=protected
+cgroup_disable=pressure
+earlycon=sprd_serial,0x20210000,115200n8
+console=ttyS1,115200n8
+loop.max_part=7
+loglevel=1
+log_buf_len=1M
+kpti=0
+firmware_class.path=/vendor/firmware,/odm/firmware
+init=/init
+root=/dev/ram0
+rw
+printk.devkmsg=on
+pcie_ports=compat
+swiotlb=1
+initcall_debug=1
+rcupdate.rcu_expedited=1
+rcu_nocbs=0-7
+lcd_id=ID7796
+lcd_name=lcd_st7365p_mipi_hdp
+lcd_base=be000000
+lcd_size=480x320
+logo_bpix=8
+sysdump_magic=80001000
+sysdump_re_flag=1
+sprdboot.usbmux=0x0
+modem=shutdown
+sprdboot.mode=normal
+rfboard.id=0
+uobboard.id=4
+rfhw.id=18432
+crystal=5
+32k.less=0
+marlin.clktype=1
+cpcmdline=end
+bootconfig
+bootcause="Reboot
+into
+normal"
+pwroffcause="device
+power
+down"
+charge.shutdown_rtc_time=48
+charge.charge_cycle=17
+charge.basp=-1
+charge.total_mah=3082000
+sprdboot.wdten=e551
+sprdboot.dswdten=enabled
+sprdboot.dvfs_set=0x0
+sprdboot.slot_suffix=_a
+sprdboot.flash=emmc
+== bootconfig ==
+androidboot.hardware = "ums9158_1h10"
+androidboot.dtbo_idx = "0"
+androidboot.ddrsize = "2048M"
+androidboot.ddrsize.range = "[2048", "3072)"
+androidboot.wdten = "e551"
+androidboot.dswdten = "enabled"
+androidboot.dvfs_set = "0x0"
+androidboot.serialno = "TS30520241202952"
+androidboot.slot_suffix = "_a"
+androidboot.dual_spl_flag = "0"
+androidboot.force_normal_boot = "1"
+androidboot.boot_devices = "soc/soc:ap-ahb/22200000.sdio"
+androidboot.vendor.skip.init = "0"
+androidboot.lwfq.type = "-1"
+androidboot.auto.efuse = "T158"
+androidboot.auto.chipid = "UMS9621-AA"
+androidboot.mode = "normal"
+androidboot.pmic.chipid = "7520"
+androidboot.verifiedbootstate = "orange"
+androidboot.flash.locked = "0"
+androidboot.vbmeta.device = "PARTUUID=1.0"
+androidboot.vbmeta.avb_version = "1.1"
+androidboot.vbmeta.device_state = "unlocked"
+androidboot.vbmeta.hash_alg = "sha256"
+androidboot.vbmeta.size = "48064"
+androidboot.vbmeta.digest = "fcaacf31c98f7120064fd470d0104306faaba52c94ee162fb7152af7e0bc16b5"
+androidboot.veritymode = "disabled"
+androidboot.veritymode.managed = "yes"
+== udc ==
+musb-hdrc.1.auto
+musb-hdrc.1.auto: state=configured
+== gadget ==
+UDC=musb-hdrc.1.auto
+idVendor=0x18d1
+idProduct=0x4ee8
+lrwxrwxrwx 1 root root    0 2026-07-02 22:30 f1 -> ../../../../usb_gadget/g1/functions/ffs.adb
+lrwxrwxrwx 1 root root    0 2026-07-02 22:30 f2 -> ../../../../usb_gadget/g1/functions/sprdgser.gs0
+lrwxrwxrwx 1 root root    0 2026-07-02 22:30 f3 -> ../../../../usb_gadget/g1/functions/sprdgser.gs1
+lrwxrwxrwx 1 root root    0 2026-07-02 22:30 f4 -> ../../../../usb_gadget/g1/functions/sprdgser.gs2
+current=adb / state=adb
+persist=adb
+== module params ==
+phy_sprd_sharkl6pro    16384  1 sprd_coresight_tmc_group
+sc27xx_fast_charger    20480  0 
+sprd_typec_displayport    20480  0 
+aw322xx_charger        36864  0 
+sc27xx_fuel_gauge      77824  0 
+sprd_charger_manager   163840  2 aw322xx_charger,sc27xx_fuel_gauge
+sprd_battery_info      20480  3 aw322xx_charger,sc27xx_fuel_gauge,sprd_charger_manager
+musb_sprd              61440  0 
+sc27xx_typec           28672  1 musb_sprd
+sprd_tcpm              90112  2 sprd_charger_manager,sc27xx_typec
+phy_sprd_qogirn6lite    28672  4 
+sprd_usbm              24576  2 musb_sprd,phy_sprd_qogirn6lite
+musb_hdrc             286720  3 sprd_audio_usb_adaptive,musb_sprd,phy_sprd_qogirn6lite
+phy_sprd_commonphy     16384  2 musb_sprd,phy_sprd_qogirn6lite
+sprd_bc1p2             20480  1 phy_sprd_qogirn6lite
+sprd_usbpinmux         20480  2 musb_sprd,phy_sprd_qogirn6lite
+extcon_usb_gpio        16384  0 
+tlsc6x                126976  0 
+-- musb_hdrc
+   use_dma=Y
+-- musb_sprd
+-- phy_sprd_qogirn6lite
+-- sprd_usbm
+-- sprd_bc1p2
+== power_supply ==
+ac: type=Mains online=0 status=
+aw322xx_charger: type=Unknown online=1 status=Not charging
+battery: type=Battery online=1 status=Not charging
+sc27xx-fgu: type=Unknown online= status=
+usb: type=USB online=1 status=
+wireless: type=Wireless online=0 status=
+== input devices ==
+N: Name="gpio-keys"
+S: Sysfs=/devices/platform/gpio-keys/input/input40
+N: Name="tlsc6x_touch"
+S: Sysfs=/devices/virtual/input/input41
+N: Name="alps_pxy"
+S: Sysfs=/devices/virtual/input/input42
+N: Name="madev"
+S: Sysfs=/devices/virtual/input/input43
+N: Name="sc27xx:vibrator"
+S: Sysfs=/devices/platform/soc/soc:aon/64400000.spi/spi_master/spi4/spi4.0/64400000.spi:pmic@0:vibrator@2390/input/input44
+N: Name="sprd-keypad"
+S: Sysfs=/devices/platform/soc/soc:aon/641b0000.keypad/input/input45
+N: Name="sprdphone-sc2730 Headset Jack"
+S: Sysfs=/devices/platform/sound@0/sound/card0/input46
+N: Name="sprdphone-sc2730 Headset Keyboard"
+S: Sysfs=/devices/platform/sound@0/sound/card0/input47
+== i2c devices ==
+0-0020 1-005a 2-006a 3-0029 3-002e 4-002a 6-0052 6-0058 6-0063 i2c-0 i2c-1 i2c-2 i2c-3 i2c-4 i2c-5 i2c-6 
+== touch node (3-002e) ==
+driver modalias name of_node power subsystem supplier:platform:64170000.gpio tlsc_esd_ctl tlsc_flash_ctl tlsc_gs_ctl tlsc_lcm_ctl tlsc_ps_ctl tlsc_reset_ctl tlsc_tp_info tlsc_version ts_suspend uevent 
+== dmesg: usb / touch / watchdog ==
+[ 3604.020654] [-,] 3,33610,3604020654,-,caller=T413@C7;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3612.019998] [-,] 3,33650,3612019998,-,caller=T412@C6;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3613.949900] [-,] 6,33667,3613949900,-,caller=T8643@C2;charger-manager charger-manager: vbat: 4133000, vbat_avg: 4131000, OCV: 4145000, ibat: -76000, ibat_avg: -78000, ibus: 0, vbus: 5056000, msoc: 906, chg_sts: 3, frce_full: 0, chg_lmt_cur: 0, inpt_lmt_cur: 0, chgr_type: 3, Tboard: 314, Tbatt: 290, thm_cur: 2400000, thm_pwr: 12000, is_fchg: 0, fchg_en: 0, tflush: 1238, tperiod: 15
+[ 3620.020508] [-,] 3,33699,3620020508,-,caller=T413@C7;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3628.020316] [-,] 3,33717,3628020316,-,caller=T413@C7;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3629.059241] [-,] 6,33738,3629059241,-,caller=T8643@C2;charger-manager charger-manager: vbat: 4131000, vbat_avg: 4130000, OCV: 4143000, ibat: -76000, ibat_avg: -85000, ibus: 0, vbus: 5069000, msoc: 906, chg_sts: 3, frce_full: 0, chg_lmt_cur: 0, inpt_lmt_cur: 0, chgr_type: 3, Tboard: 314, Tbatt: 290, thm_cur: 2400000, thm_pwr: 12000, is_fchg: 0, fchg_en: 0, tflush: 1254, tperiod: 16
+[ 3630.077422] [-,] 6,33747,3630077422,-,caller=T432@C1;[SPRD_PDBG] Pending Wakeup Sources: musb-hdrc.1.auto 
+[ 3636.021181] [-,] 3,33753,3636021181,-,caller=T413@C7;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3644.021319] [-,] 3,33784,3644021319,-,caller=T412@C6;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3644.159553] [-,] 6,33796,3644159553,-,caller=T8643@C2;charger-manager charger-manager: vbat: 4131000, vbat_avg: 4131000, OCV: 4143000, ibat: -77000, ibat_avg: -77000, ibus: 0, vbus: 5069000, msoc: 905, chg_sts: 3, frce_full: 0, chg_lmt_cur: 0, inpt_lmt_cur: 0, chgr_type: 3, Tboard: 314, Tbatt: 290, thm_cur: 2400000, thm_pwr: 12000, is_fchg: 0, fchg_en: 0, tflush: 1269, tperiod: 15
+[ 3652.020619] [-,] 3,33810,3652020619,-,caller=T413@C7;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3659.262485] [-,] 6,33845,3659262485,-,caller=T8643@C2;charger-manager charger-manager: vbat: 4127000, vbat_avg: 4130000, OCV: 4143000, ibat: -103000, ibat_avg: -84000, ibus: 0, vbus: 5056000, msoc: 905, chg_sts: 3, frce_full: 0, chg_lmt_cur: 0, inpt_lmt_cur: 0, chgr_type: 3, Tboard: 314, Tbatt: 290, thm_cur: 2400000, thm_pwr: 12000, is_fchg: 0, fchg_en: 0, tflush: 1284, tperiod: 15
+[ 3660.020003] [-,] 3,33847,3660020003,-,caller=T413@C7;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3660.797438] [-,] 6,33855,3660797438,-,caller=T432@C1;[SPRD_PDBG] Pending Wakeup Sources: musb-hdrc.1.auto 
+[ 3668.021432] [-,] 3,33884,3668021432,-,caller=T413@C7;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3674.366607] [-,] 6,33913,3674366607,-,caller=T8643@C2;charger-manager charger-manager: vbat: 4131000, vbat_avg: 4131000, OCV: 4143000, ibat: -80000, ibat_avg: -78000, ibus: 0, vbus: 5056000, msoc: 905, chg_sts: 3, frce_full: 0, chg_lmt_cur: 0, inpt_lmt_cur: 0, chgr_type: 3, Tboard: 314, Tbatt: 290, thm_cur: 2400000, thm_pwr: 12000, is_fchg: 0, fchg_en: 0, tflush: 1299, tperiod: 15
+[ 3676.020695] [-,] 3,33919,3676020695,-,caller=T412@C6;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3684.020178] [-,] 3,33937,3684020178,-,caller=T412@C6;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3689.471521] [-,] 6,33960,3689471521,-,caller=T8643@C2;charger-manager charger-manager: vbat: 4130000, vbat_avg: 4130000, OCV: 4143000, ibat: -83000, ibat_avg: -81000, ibus: 0, vbus: 5069000, msoc: 905, chg_sts: 3, frce_full: 0, chg_lmt_cur: 0, inpt_lmt_cur: 0, chgr_type: 3, Tboard: 314, Tbatt: 290, thm_cur: 2400000, thm_pwr: 12000, is_fchg: 0, fchg_en: 0, tflush: 1314, tperiod: 15
+[ 3691.517443] [-,] 6,33984,3691517443,-,caller=T432@C1;[SPRD_PDBG] Pending Wakeup Sources: musb-hdrc.1.auto 
+[ 3692.020511] [-,] 3,33986,3692020511,-,caller=T413@C7;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3700.020750] [-,] 3,33998,3700020750,-,caller=T413@C7;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3704.578355] [-,] 6,34023,3704578355,-,caller=T8643@C2;charger-manager charger-manager: vbat: 4131000, vbat_avg: 4130000, OCV: 4143000, ibat: -76000, ibat_avg: -80000, ibus: 0, vbus: 5056000, msoc: 905, chg_sts: 3, frce_full: 0, chg_lmt_cur: 0, inpt_lmt_cur: 0, chgr_type: 3, Tboard: 314, Tbatt: 290, thm_cur: 2400000, thm_pwr: 12000, is_fchg: 0, fchg_en: 0, tflush: 1329, tperiod: 15
+[ 3708.020770] [-,] 3,34029,3708020770,-,caller=T412@C6;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3716.021080] [-,] 3,34047,3716021080,-,caller=T412@C6;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3719.679950] [-,] 6,34064,3719679950,-,caller=T8643@C2;charger-manager charger-manager: vbat: 4131000, vbat_avg: 4130000, OCV: 4142000, ibat: -74000, ibat_avg: -81000, ibus: 0, vbus: 5056000, msoc: 905, chg_sts: 3, frce_full: 0, chg_lmt_cur: 0, inpt_lmt_cur: 0, chgr_type: 3, Tboard: 314, Tbatt: 290, thm_cur: 2400000, thm_pwr: 12000, is_fchg: 0, fchg_en: 0, tflush: 1344, tperiod: 15
+[ 3722.236524] [-,] 6,34085,3722236524,-,caller=T432@C1;[SPRD_PDBG] Pending Wakeup Sources: musb-hdrc.1.auto 
+[ 3724.020421] [-,] 3,34087,3724020421,-,caller=T412@C6;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3732.021367] [-,] 3,34129,3732021367,-,caller=T412@C6;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3734.784399] [-,] 6,34145,3734784399,-,caller=T8643@C2;charger-manager charger-manager: vbat: 4130000, vbat_avg: 4130000, OCV: 4143000, ibat: -82000, ibat_avg: -81000, ibus: 0, vbus: 5056000, msoc: 905, chg_sts: 3, frce_full: 0, chg_lmt_cur: 0, inpt_lmt_cur: 0, chgr_type: 3, Tboard: 314, Tbatt: 290, thm_cur: 2400000, thm_pwr: 12000, is_fchg: 0, fchg_en: 0, tflush: 1359, tperiod: 15
+[ 3740.020778] [-,] 3,34152,3740020778,-,caller=T413@C7;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3748.020706] [-,] 3,34173,3748020706,-,caller=T412@C6;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3749.886384] [-,] 6,34188,3749886384,-,caller=T8643@C2;charger-manager charger-manager: vbat: 4127000, vbat_avg: 4130000, OCV: 4143000, ibat: -105000, ibat_avg: -81000, ibus: 0, vbus: 5069000, msoc: 905, chg_sts: 3, frce_full: 0, chg_lmt_cur: 0, inpt_lmt_cur: 0, chgr_type: 3, Tboard: 314, Tbatt: 290, thm_cur: 2400000, thm_pwr: 12000, is_fchg: 0, fchg_en: 0, tflush: 1374, tperiod: 15
+[ 3752.957666] [-,] 6,34209,3752957666,-,caller=T432@C1;[SPRD_PDBG] Pending Wakeup Sources: musb-hdrc.1.auto 
+[ 3756.021197] [-,] 3,34211,3756021197,-,caller=T413@C7;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3764.021230] [-,] 3,34238,3764021230,-,caller=T413@C7;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3764.994252] [-,] 6,34250,3764994252,-,caller=T8643@C2;charger-manager charger-manager: vbat: 4131000, vbat_avg: 4130000, OCV: 4142000, ibat: -74000, ibat_avg: -81000, ibus: 0, vbus: 5069000, msoc: 905, chg_sts: 3, frce_full: 0, chg_lmt_cur: 0, inpt_lmt_cur: 0, chgr_type: 3, Tboard: 314, Tbatt: 290, thm_cur: 2400000, thm_pwr: 12000, is_fchg: 0, fchg_en: 0, tflush: 1389, tperiod: 15
+[ 3772.020730] [-,] 3,34260,3772020730,-,caller=T412@C6;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3780.019955] [-,] 3,34279,3780019955,-,caller=T413@C7;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3780.095484] [-,] 6,34291,3780095484,-,caller=T8643@C2;charger-manager charger-manager: vbat: 4129000, vbat_avg: 4130000, OCV: 4143000, ibat: -89000, ibat_avg: -81000, ibus: 0, vbus: 5056000, msoc: 904, chg_sts: 3, frce_full: 0, chg_lmt_cur: 0, inpt_lmt_cur: 0, chgr_type: 3, Tboard: 313, Tbatt: 289, thm_cur: 2400000, thm_pwr: 12000, is_fchg: 0, fchg_en: 0, tflush: 1405, tperiod: 16
+[ 3783.676512] [-,] 6,34362,3783676512,-,caller=T432@C1;[SPRD_PDBG] Pending Wakeup Sources: musb-hdrc.1.auto 
+[ 3788.021437] [-,] 3,34391,3788021437,-,caller=T413@C7;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3795.200609] [-,] 6,34420,3795200609,-,caller=T10876@C2;charger-manager charger-manager: vbat: 4131000, vbat_avg: 4129000, OCV: 4143000, ibat: -76000, ibat_avg: -80000, ibus: 0, vbus: 5069000, msoc: 904, chg_sts: 3, frce_full: 0, chg_lmt_cur: 0, inpt_lmt_cur: 0, chgr_type: 3, Tboard: 314, Tbatt: 289, thm_cur: 2400000, thm_pwr: 12000, is_fchg: 0, fchg_en: 0, tflush: 15, tperiod: 15
+[ 3796.020543] [-,] 3,34422,3796020543,-,caller=T413@C7;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3804.021037] [-,] 3,34446,3804021037,-,caller=T413@C7;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3810.306399] [-,] 6,34471,3810306399,-,caller=T10876@C2;charger-manager charger-manager: vbat: 4126000, vbat_avg: 4129000, OCV: 4143000, ibat: -112000, ibat_avg: -80000, ibus: 0, vbus: 5069000, msoc: 904, chg_sts: 3, frce_full: 0, chg_lmt_cur: 0, inpt_lmt_cur: 0, chgr_type: 3, Tboard: 314, Tbatt: 289, thm_cur: 2400000, thm_pwr: 12000, is_fchg: 0, fchg_en: 0, tflush: 30, tperiod: 15
+[ 3812.020394] [-,] 3,34473,3812020394,-,caller=T412@C6;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3814.399406] [-,] 6,34491,3814399406,-,caller=T432@C1;[SPRD_PDBG] Pending Wakeup Sources: musb-hdrc.1.auto 
+[ 3820.019906] [-,] 3,34506,3820019906,-,caller=T413@C7;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3825.408185] [-,] 6,34535,3825408185,-,caller=T10876@C2;charger-manager charger-manager: vbat: 4124000, vbat_avg: 4129000, OCV: 4142000, ibat: -114000, ibat_avg: -82000, ibus: 0, vbus: 5069000, msoc: 904, chg_sts: 3, frce_full: 0, chg_lmt_cur: 0, inpt_lmt_cur: 0, chgr_type: 3, Tboard: 313, Tbatt: 289, thm_cur: 2400000, thm_pwr: 12000, is_fchg: 0, fchg_en: 0, tflush: 45, tperiod: 15
+[ 3828.020510] [-,] 3,34541,3828020510,-,caller=T413@C7;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3836.020030] [-,] 3,34555,3836020030,-,caller=T412@C6;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3840.511487] [-,] 6,34576,3840511487,-,caller=T10876@C2;charger-manager charger-manager: vbat: 4130000, vbat_avg: 4130000, OCV: 4143000, ibat: -82000, ibat_avg: -76000, ibus: 0, vbus: 5069000, msoc: 904, chg_sts: 3, frce_full: 0, chg_lmt_cur: 0, inpt_lmt_cur: 0, chgr_type: 3, Tboard: 313, Tbatt: 289, thm_cur: 2400000, thm_pwr: 12000, is_fchg: 0, fchg_en: 0, tflush: 60, tperiod: 15
+[ 3844.021198] [-,] 3,34582,3844021198,-,caller=T413@C7;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3845.117404] [-,] 6,34590,3845117404,-,caller=T432@C1;[SPRD_PDBG] Pending Wakeup Sources: musb-hdrc.1.auto 
+[ 3852.021180] [-,] 3,34628,3852021180,-,caller=T413@C7;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3855.616361] [-,] 6,34648,3855616361,-,caller=T10876@C2;charger-manager charger-manager: vbat: 4130000, vbat_avg: 4130000, OCV: 4142000, ibat: -76000, ibat_avg: -77000, ibus: 0, vbus: 5069000, msoc: 904, chg_sts: 3, frce_full: 0, chg_lmt_cur: 0, inpt_lmt_cur: 0, chgr_type: 3, Tboard: 313, Tbatt: 289, thm_cur: 2400000, thm_pwr: 12000, is_fchg: 0, fchg_en: 0, tflush: 75, tperiod: 15
+[ 3860.020753] [-,] 3,34668,3860020753,-,caller=T413@C7;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3868.020836] [-,] 3,34682,3868020836,-,caller=T412@C6;sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20
+[ 3870.718103] [-,] 6,34703,3870718103,-,caller=T10876@C2;charger-manager charger-manager: vbat: 4129000, vbat_avg: 4129000, OCV: 4143000, ibat: -90000, ibat_avg: -78000, ibus: 0, vbus: 5069000, msoc: 904, chg_sts: 3, frce_full: 0, chg_lmt_cur: 0, inpt_lmt_cur: 0, chgr_type: 3, Tboard: 313, Tbatt: 289, thm_cur: 2400000, thm_pwr: 12000, is_fchg: 0, fchg_en: 0, tflush: 90, tperiod: 15
+== pstore ==
+total 0
+-r-xr-xr-x 1 system log 78 1970-01-01 08:01 console-ramoops-0
+-r-xr-xr-x 1 system log 48 1970-01-01 08:01 pmsg-ramoops-0
+== done ==

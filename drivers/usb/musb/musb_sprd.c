@@ -139,6 +139,7 @@ struct sprd_glue {
 	struct regmap			*pmu;
 	struct musb_reg_info		pubsys_bypass;
 	struct musb_reg_info		suspend_clk_src_frc_on;
+	struct musb_reg_info		usb31pllv_frc_on;
 	struct usb_role_switch		*role_sw;
 
 	enum usb_role			role;
@@ -1587,7 +1588,18 @@ static int musb_sprd_otg_start_host(struct sprd_glue *glue, int on)
 		dev_info(glue->dev, "%s: host setup done\n", __func__);
 		MUSB_HST_MODE(musb);
 		musb->xceiv->otg->state = OTG_STATE_A_IDLE;
-		musb->hops.host_start(musb);
+		/*
+		 * hops.host_start has no implementation in this tree (the vendor
+		 * musb_host_start() was not carried over), so this call used to be
+		 * a guaranteed Oops (pc=0x0) as soon as the port switched to host
+		 * mode, i.e. the moment a USB device was plugged in.  The host
+		 * controller is already running here - musb_host_setup() brought up
+		 * the HCD and sprd_musb_enable() below does SESSION/HOST_FORCE_EN -
+		 * so skipping the hook is safe.  The sibling UMS9620 tree guards
+		 * the same call the same way.
+		 */
+		if (musb->hops.host_start)
+			musb->hops.host_start(musb);
 		musb_reset_all_fifo_2_default(musb);
 
 		glue->dr_mode = USB_DR_MODE_HOST;
@@ -2336,6 +2348,31 @@ static int musb_sprd_probe(struct platform_device *pdev)
 		glue->pubsys_bypass.regmap_ptr = NULL;
 	}
 #endif
+	/*
+	 * The USB2 PHY's 26 MHz reference comes out of the USB3.1 PLL
+	 * (clk "usb31pllv-26m"), so the PLL has to stay powered even though
+	 * this board never speaks SuperSpeed.  With the PLL gated the analog
+	 * side still detects VBUS - charging works - but nothing ever moves on
+	 * the data pair and the host never enumerates us.  The stock
+	 * musb_sprd.ko does the same thing
+	 * (musb_sprd_control_usb31pllv_frc_onoff()).
+	 */
+	glue->usb31pllv_frc_on.regmap_ptr = syscon_regmap_lookup_by_phandle_args(
+					dev->of_node, "usb31pllv_frc_on", 2,
+					glue->usb31pllv_frc_on.args);
+	if (IS_ERR(glue->usb31pllv_frc_on.regmap_ptr)) {
+		dev_warn(&pdev->dev, "failed to get usb31pllv_frc_on regmap!\n");
+		glue->usb31pllv_frc_on.regmap_ptr = NULL;
+	} else {
+		ret = regmap_update_bits(glue->usb31pllv_frc_on.regmap_ptr,
+					 glue->usb31pllv_frc_on.args[0],
+					 glue->usb31pllv_frc_on.args[1],
+					 glue->usb31pllv_frc_on.args[1]);
+		dev_info(&pdev->dev,
+			 "usb31pllv forced on (reg 0x%x mask 0x%x) ret = %d\n",
+			 glue->usb31pllv_frc_on.args[0],
+			 glue->usb31pllv_frc_on.args[1], ret);
+	}
 	/*  GPIOs now */
 	/* get vbus/id gpios extcon device */
 	if (of_property_read_bool(node, "extcon")) {
