@@ -246,6 +246,59 @@ modprobe: Failed to load module sprd-compr-2stage-dma.ko: Exec format error
 这三个是原厂旧模块残留（我们没有产出同名替换）。其中后两个正是本轮 §2 导入的音频模块
 —— 启用后重打包即可消除。
 
+## 5c. camera / video 两个仓库：能补到哪一步
+
+新增 `sprd-kernel-modules-common-camera`(Motorola, 2024-12-31) 与
+`sprd-kernel-modules-video`(Motorola, 2024-09-24)。
+
+### camera 仓：模块齐了，但卡在 4 个内核头文件
+
+它确实**覆盖了全部 7 个缺失的 camera 模块**（`KO_MODULE_NAME` 逐一对上）：
+`sprd_camera`(cam_sys/core)、`sprd_cpp`、`sprd_sensor`、`sprd_flash_drv`、
+`flash_ic_aw3641`、`mmdvfs`、`sprd_camsys_pw_domain`。
+而且 `power/kernel/` 下有 `sprd_camsys_pw_domain_qogirn6l.c` —— **qogirn6l 就是
+qogirn6lite**，正是本 SoC；单个驱动 `sprd_campd`，无重名问题。
+
+**但整棵 camera 栈依赖 4 个 `include/video/` 下的内核头文件，八个仓库里全都没有：**
+
+| 头文件 | 谁需要 |
+|---|---|
+| `video/sprd_mmsys_pw_domain.h` | power、mmdvfs、sensor、cam_sys、core |
+| `video/sprd_mmsys_pw_domain_qogirn6l.h` | power |
+| `video/sprd_mmsys_pw_domain_qogirn6pro.h` | power |
+| `video/sprd_vsp_pw_domain.h` | cpp |
+
+这是**内核侧**头文件（Unisoc BSP 加在 `include/video/`），不在任何模块仓库里。
+其余依赖都满足：`flash/` 零缺口，`sprd_camsys_domain.h` 就在 camera 仓自己的
+`power/kernel/` 下，`os_adapt_common.h` 在 `os_adapt/linux/`。
+（`core/` 另外还要 `mach/hardware.h`、`soc/sprd/globalregs.h` 等老 SoC 的头，
+但 `core/` 是旧一代 dcam，本 SoC 用的是 `cam_sys/`，不需要。）
+
+**所以 `sprd-jpg` 仍然进不来** —— 它需要 `sprd_glb_mm_pw_on_cfg()`，
+而提供方 `sprd_camsys_pw_domain` 自己编不过去。
+
+### video 仓：没有那些头文件，但澄清了三件事
+
+1. **它也没有**那 4 个头文件。
+2. 它的 `sprd-vpu-power/sprd_vpu_pw_domain.c` 与我们树里
+   `drivers/soc/sprd/domain/` 那份 **md5 完全相同**（`dcc14f0f…`）—— 同源，无需动。
+   两个 power 模块都不导出任何符号（纯 genpd provider），所以
+   `sprd_vsp_pw_domain.h` 只是给 camera `cpp/` 声明那两个函数用的。
+3. `sprd-vsp` / `sprd-vsp-power` **本机用不上** —— 原厂 130 个模块里没有 vsp。
+4. 它的 `sprd-vpu` / `sprd-jpg` 与 OPPO 仓**文件集完全一致**（都没有 `vpu_drv.c`），
+   所以换仓库不解决问题。
+
+### 顺带核实：导入的 vpu 是新一代源码，但能正确绑定
+
+原厂 `vpu.ko` 的 DWARF 显示它是用 **`vpu_drv.c`** 编的，而两个公开仓库都只有
+拆分后的 `common_drv.c` + `vpu_r1p0.c` + `vsp_*.c` —— 又是一个"原厂是第三变体"
+的情况（同 §2.5 的 `hook.c`）。
+
+但这次可以确认不影响绑定：设备上 `sprd_vpu` 驱动绑的是
+`32000000.video-codec`(`sprd,vpu-enc-core0`) 和
+`32200000.video-codec`(`sprd,vpu-dec-core0`)，**两个 compatible 都在我们导入版本的
+`of_match_table_vpu` 里**，且驱动名同为 `sprd_vpu`。
+
 ## 6. 下一步
 
 1. 决定是否在 `e5_rongyue_defconfig` 启用本轮导入的 25 个模块
