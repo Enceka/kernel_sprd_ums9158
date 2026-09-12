@@ -29,6 +29,15 @@
 #define SYSTEM_WIFI_AB_CONFIG_FILE "wifi_board_config_ab.ini"
 #define SYSTEM_WIFI_AC_CONFIG_FILE "wifi_board_config_ac.ini"
 #define SYSTEM_WIFI_AA_CONFIG_FILE "wifi_board_config_aa.ini"
+/*
+ * Marlin3Lite AB (chip id 0x2355b001) needs the "xpe" variant. The stock
+ * vendor module loads exactly this file for this hardware, see
+ * "sc2355_get_nvm_table, chip id of marlin3 lite is 2, IPD(1) open
+ * wifi_board_config.xpe.ini" in the stock dmesg. Falling through to
+ * SYSTEM_WIFI_CONFIG_FILE instead gives a wrong frequency compensation,
+ * rate-to-power and power backoff table.
+ */
+#define SYSTEM_WIFI_XPE_CONFIG_FILE "wifi_board_config.xpe.ini"
 
 #define CF_TAB(NAME, MEM_OFFSET, TYPE) \
 	{ NAME, (size_t)(&(((struct wifi_conf_t *)(0))->MEM_OFFSET)), TYPE}
@@ -499,6 +508,11 @@ int sc2355_get_nvm_table(struct sprd_priv *priv, struct wifi_conf_t *p)
 			__func__, wcn_get_chip_type(),
 			SYSTEM_WIFI_AA_CONFIG_FILE);
 		return hw_param_nvm_parse(priv, SYSTEM_WIFI_AA_CONFIG_FILE, (void *)p);
+	} else if (wcn_get_chip_type() == WCN_CHIP_ID_AB) {
+		wl_info("%s, chip id of marlin3 lite is %d, open %s\n",
+			__func__, wcn_get_chip_type(),
+			SYSTEM_WIFI_XPE_CONFIG_FILE);
+		return hw_param_nvm_parse(priv, SYSTEM_WIFI_XPE_CONFIG_FILE, (void *)p);
 	}
 	if (prj_name !=NULL && (strncmp(prj_name,"22716",5) ==0 )) {
 		printk("[kernel] SYSTEM_WIFI_CONFIG_FILE_HULK 22716");
