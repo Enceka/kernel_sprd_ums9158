@@ -47,22 +47,12 @@ int tpd_notifier_call_chain(unsigned long val)
 }
 EXPORT_SYMBOL_GPL(tpd_notifier_call_chain);
 
-int __init lcd_state_notify_init(void)
-{
-	pr_notice("%s into\n", __func__);
-	return 0;
-}
-
-static void __exit lcd_state_notify_exit(void)
-{
-	pr_notice("%s into\n", __func__);
-}
-
-module_init(lcd_state_notify_init);
-module_exit(lcd_state_notify_exit);
-
-MODULE_AUTHOR("zte");
-MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("lcd state notify");
+/*
+ * Upstream builds this file as part of a built-in (bool) touchscreen stack, so
+ * its module_init/module_exit just became extra initcalls.  Here the whole
+ * framework is one module (tlsc6x.ko) and a module can only have one of each,
+ * so they are dropped - they only printed a line - along with the duplicate
+ * MODULE_* macros, which ztp_core.c already provides.
+ */
 #endif
 

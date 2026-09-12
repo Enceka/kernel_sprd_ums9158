@@ -387,6 +387,10 @@ CONFIG_INPUT_TOUCHSCREEN=y
 CONFIG_TOUCHSCREEN_VENDOR_V2=m
 CONFIG_TOUCHSCREEN_BOARD_NAME="e5"
 CONFIG_TOUCHSCREEN_TLSC6X_V3=m
+# ztp_core.c calls tpd_notifier_call_chain() unconditionally, but the whole
+# of lcd_state_notify.c sits behind this symbol - without it the module has an
+# unresolved reference and modpost fails.
+CONFIG_TOUCHSCREEN_LCD_NOTIFY=y
 CONFIG_INPUT_MISC=y
 CONFIG_INPUT_UINPUT=y
 CONFIG_INPUT_SC27XX_VIBRA=m
