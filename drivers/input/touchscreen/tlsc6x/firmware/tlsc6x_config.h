@@ -47,7 +47,12 @@
 /* #define TLSC_BUILDIN_BOOT */
 /* #define TLSC_CHIP_NAME "chsc6440" */
 #define CONFIG_TLSC_POINT_REPORT_CHECK
-#define TLSC_REPORT_BY_ZTE_ALGO
+/*
+ * E5: report touches straight from the driver (input_mt_* / input_report_abs).
+ * The alternative path handed coordinates to the vendor framework's algorithm
+ * layer, which this build no longer carries - see tlsc6x_core.h.
+ */
+/* #define TLSC_REPORT_BY_ZTE_ALGO */
 /* E5: paired with TLSC_TPD_PROXIMITY above - no proximity hardware. */
 #define HUB_TP_PS_ENABLE 0
 #endif /* _LINUX_TLSC6X_CONFIG_H_ */

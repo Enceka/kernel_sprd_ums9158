@@ -1035,13 +1035,13 @@ int tlsc6x_proc_cfg_update(u8 *fw_name, int behave)
 	struct ztp_device *cdev = tpd_cdev;
 
 	TLSC_FUNC_ENTER();
-	if (cdev->tp_firmware == NULL || cdev->tp_firmware->data == NULL) {
-		tlsc_err("cdev->tp_firmware is NULL");
+	if (cdev->fw_data == NULL || cdev->fw_size == 0) {
+		tlsc_err("firmware buffer is empty, nothing to update");
 		return -EIO;
 	}
 
-	pbt_buf =  (u8 *)cdev->tp_firmware->data;;
-	fileSize = cdev->tp_firmware->size;
+	pbt_buf = cdev->fw_data;
+	fileSize = cdev->fw_size;
 	auto_upd_busy = 1;
 	tlsc_irq_disable();
 	msleep(100);
@@ -2059,7 +2059,7 @@ exit_alloc_data_failed:
 	g_tp_drvdata = NULL;
 	i2c_set_clientdata(client, g_tp_drvdata);
 exit_alloc_platform_data_failed:
-	tpd_cdev->ztp_probe_fail_chip_id = TS_CHIP_TLSC;
+	tpd_cdev->probe_fail_chip_id = TS_CHIP_TLSC;
 	return err;
 }
 
