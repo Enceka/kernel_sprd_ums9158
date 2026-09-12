@@ -538,6 +538,6 @@ int sc2355_get_nvm_table(struct sprd_priv *priv, struct wifi_conf_t *p)
 		return hw_param_nvm_parse(priv, SYSTEM_WIFI_CONFIG_FILE_HULK, (void *)p);
 	}else{
 		printk("[kernel] SYSTEM_WIFI_CONFIG_FILE");
-		return hw_param_nvm_parse(priv, SYSTEM_WIFI_CONFIG_FILE_HULK, (void *)p);
+		return hw_param_nvm_parse(priv, SYSTEM_WIFI_CONFIG_FILE, (void *)p);
 	}
 }
