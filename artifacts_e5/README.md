@@ -17,6 +17,10 @@ stack + VPU).  See `driver_gap_2026-09-12.md`, which also records what is
 confirmed to have no source anywhere (aw322xx_charger, the camera group) and
 why sprd-jpg cannot be imported.
 
+**2026-09-13**: the `adb offline` report is traced to the gadget DMA path
+(`musb_ep_restart()` never called `channel_program()`), see the 03:35 re-cut
+below.
+
 ## Build inputs
 
 - Base kernel: Google android13-5.15 (5.15.211 GKI, commit 21bbfb609)
@@ -154,6 +158,46 @@ Note also that "hotspot kills wifi" is normal on this hardware:
 single instance, and the stock device does exactly the same
 (`STA iface wlan0 was destroyed, stopping client mode` 27 s after associating,
 with STA reconnecting ~1 s after the hotspot is switched off).
+
+### Re-cut 03:35, adb offline: the sprd DMA channel was never programmed
+
+`179041ad1` (usb: musb sprd: program the dma channel from the gadget restart
+path), clean tree, kernel release `5.15.211-g179041ad1e14`; `musb_hdrc.ko` and
+`musb_sprd.ko` both report exactly that vermagic.
+
+Root cause of the `offline` device: `musb_ep_restart()` kept every non-zero
+endpoint on the PIO path, which only armed `TXCSR.DMAENAB`. The sprd engine
+starts a transfer solely after `channel_program()` handed it the buffer, and
+nothing ever called it, so `musb_write_fifo()` was never reached: ep1/ep2
+transmitted zero bytes, the adbd CNXN never left the device, the host bulk
+request timed out (`e00002ed`) and the gadget stayed `offline` although the UDC
+state was `configured`. The remaining vendor peripheral-path gaps were ported
+from the UMS9620 tree (see the commit message): `musb_dma_sprd()`, the
+`channel_program()` call in `musb_ep_restart()`, the `req_queued` lookup in
+`musb_gadget_dequeue()`, and the HSBT TX/RX buffer-clear enable plus RX-flush
+retry in `nuke()`, `musb_gadget_enable()` and `musb_gadget_fifo_flush()`.
+
+| artifact | size | sha256 |
+|---|---|---|
+| `out_e5/arch/arm64/boot/Image` | 34,740,736 | `62c12df20871a86329ebc7c657c554cae5539d3086cb7f51559b02d90244880e` |
+| `boot-e5.img` | 67,108,864 | `67bce34562d2b5800848362a7690dc1b01d3b6cba5efaedb99877b63c4723365` |
+| `stock-img/vendor_boot_e5.img` | 104,857,600 | `35685d0a1ea4e3d6999b4986c4bd29d65c80f016502b93cd097fc13c5772e6d5` |
+| `stock-img/vendor_dlkm_e5.img` | 65,458,176 | `1d45525ffafcae86b1f0b0ad0f32d45ae9951fe387bd2ac9a44ec1db41ee4b27` |
+| `e5-rongyue.dtb` | 202,549 | `6ed5c7745bccb3ececb45d714dfdaaafde0a7eed8742425abd4e35e6d9d3d2fb` (unchanged) |
+
+- **boot**: new Image is 0x2121a00 inside the 0x2c97000 region (0xb75600 free),
+  unchanged headroom.
+- **vendor_boot**: 42 first-stage modules, 41 stock-only entries are `=y` in our
+  kernel, vbmeta still moves 0x4d18000 -> 0x4c42000.
+- **vendor_dlkm**: 155 modules, `modules.load` covers all 155, labels verified.
+
+Verify on the next flash (`gadget D+ pullup on` plus `adb devices` leaving
+`offline`):
+
+```sh
+dmesg | grep -E "IPD\(1\)|open wifi_board_config|gadget D\+ pullup"
+cat /sys/class/udc/*/state; getprop sys.usb.state; adb devices
+```
 
 **Never build the Image and the modules from different tree states.** UTS_RELEASE
 carries both the `git describe` hash and a `-dirty` suffix when tracked files are
