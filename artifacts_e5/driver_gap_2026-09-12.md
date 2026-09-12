@@ -299,6 +299,63 @@ qogirn6lite**，正是本 SoC；单个驱动 `sprd_campd`，无重名问题。
 `32200000.video-codec`(`sprd,vpu-dec-core0`)，**两个 compatible 都在我们导入版本的
 `of_match_table_vpu` 里**，且驱动名同为 `sprd_vpu`。
 
+## 5d. 有线 adb 的真正致命点：MUSB `hops.host_start` 是 NULL
+
+§5b 修的是"PHY 驱动重名竞态"（会让 UDC 时有时无），但它只解释"时好时坏"。
+继续追之后，用 `artifacts_e5/incident/dmesg.log` 里自编内核的崩溃记录定位到一个
+**必然致命**的 bug：只要切到 host 模式，内核立刻 NULL 解引用而死。
+
+```
+[31.038] Unable to handle kernel NULL pointer dereference at 0x0
+[31.038] Internal error: Oops [#1] PREEMPT SMP  5.15.211-g47380a7b3b56-dirty #7
+[32.233] Workqueue: k_sm_usb musb_sprd_otg_sm_work [musb_sprd]
+[32.247] pc : 0x0
+[32.250] lr : musb_sprd_otg_start_host+0x290/0x368 [musb_sprd]
+```
+
+时序：插入 USB → typec `source connect!` → `musb_sprd_otg_start_host: turn on host`
+→ `host setup done` → 立即 Oops。`pc=0x0` 说明是**函数指针为 NULL 被调用**。
+
+反汇编 `musb_sprd.ko` 确认：
+
+```
+134c: ldr x8, [x19, #0x2370]   ; musb->hops.host_start
+1350: blr x8                    ; NULL -> 跳到地址 0
+```
+
+`0x2370` 正对应 `struct musb_host_ops`（`musb_core.h:196`）第一个成员
+`host_start` 的偏移。根因：该结构体里 4 个钩子（`host_start` /
+`advance_schedule` / `tx_dma_program` / `rx_dma_program`）在本树里**只被读取、
+从未赋值** —— `musb_host_alloc()` 少了 wiring 那段，且本树没有
+`musb_host_start()` 的实现。对照兄弟树
+`refer/android_kernel_zte_ums9620_mifi_u30air/`：它会在
+`musb_host.c:3272-3275` 把这 4 个全填上，并在 `musb_sprd.c` 里用
+`if (musb->hops.host_start)` 保护该调用。我们两样都没有。
+
+**已修**（`artifacts_e5/fix_musb_hops.py`，幂等，可重跑）：
+
+1. `musb_host.c` `musb_host_alloc()`：填上本树确实存在的两个 ——
+   `advance_schedule`、`tx_dma_program`；
+2. `musb_sprd.c:1591`：裸调用 `musb->hops.host_start(musb);` 改为 `if (...)` 保护。
+   本树无该实现，跳过是安全的：HCD 已由 `musb_host_setup()` 拉起，紧接着
+   `sprd_musb_enable()` 会做 SESSION/HOST_FORCE_EN；
+3. `sprd_musbhsdma.c`：两处 `hops.rx_dma_program(...)` 调用点加保护（该钩子本树
+   无实现，保持 NULL）。`advance_schedule` / `tx_dma_program` 现已填上，无需保护。
+
+影响：这条是**硬失败**（内核直接挂），比 §5b 的竞态更靠前，很可能才是"有线 adb
+一直不通"的主因 —— 即便 PHY 正确 probe、UDC 出现，一旦切 host 模式照样 Oops。
+
+**编译/链接验证已过**（fedora VM 内 `make O=out_e5 modules`，`out_e5` 里三处目标文件
+19:43 重新生成）：
+
+- `musb_sprd.ko` —— 崩溃点由原来的 `ldr x8,[x19,#0x2370]; blr x8` 变为
+  `ldr x8,[x19,#0x2370]; cbz x8,0x1358; ...; blr x8`，即有了空指针判断；
+- `musb_hdrc.ko` `musb_host_alloc` —— 新增两条 store：`str x8,[x19,#0x2378]`
+  (`advance_schedule`)、`str x8,[x19,#0x2380]` (`tx_dma_program`)；
+  `host_start`(0x2370)/`rx_dma_program`(0x2388) 仍为 0，由调用点保护。
+
+剩下只是刷机实测（重打包 vendor_dlkm 或替换模块后插线看是否还 Oops）。
+
 ## 6. 下一步
 
 1. 决定是否在 `e5_rongyue_defconfig` 启用本轮导入的 25 个模块
@@ -310,6 +367,7 @@ qogirn6lite**，正是本 SoC；单个驱动 `sprd_campd`，无重名问题。
    **两者不应同时开**。当前 defconfig 开的是 mainline 那个，未处理；
 3. 把 `tlsc6x@2e` 节点补进 `e5-rongyue-overlay.dts`（见 §5）；
 4. `ion_ipc_trusty` 现在有源码了，可以重新评估 09-11 文档 §5 里那条遗留项；
-5. 刷机验证 §5b 的 PHY 修复是否让有线 adb 稳定；若仍不稳，下一个怀疑对象是
-   BIND→ENABLE 那 24 秒延迟（原厂 0.7 秒），可从 `musb-sprd` 的
+5. 刷机验证有线 adb：**先看 §5d 的 MUSB `hops` 修复**（这是硬失败，优先级最高），
+   再看 §5b 的 PHY 修复是否让 UDC 稳定出现；若都不再 Oops 但仍不稳，下一个怀疑对象
+   是 BIND→ENABLE 那 24 秒延迟（原厂 0.7 秒），可从 `musb-sprd` 的
    `sm_work` 状态机与 vbus 事件时序入手。

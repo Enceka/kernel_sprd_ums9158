@@ -69,7 +69,16 @@ CONFIG_SETEND_EMULATION=y
 CONFIG_ARM64_MPAM=y
 CONFIG_RANDOMIZE_BASE=y
 # CONFIG_RANDOMIZE_MODULE_REGION_FULL is not set
-CONFIG_CMDLINE="stack_depot_disable=on kasan.stacktrace=off kvm-arm.mode=protected cgroup_disable=pressure loglevel=8 panic=5 softlockup_panic=1 hung_task_panic=1"
+# Builtin cmdline, appended to the bootloader's (CONFIG_CMDLINE_EXTEND).
+# The stock image passes the first five (plus everything else from bootconfig);
+# keep loglevel high for diagnosis.
+#
+# NOTE: panic=5 / softlockup_panic=1 / hung_task_panic=1 used to be in here.
+# They turned any stall - e.g. a USB gadget teardown that hangs - into a panic
+# + reboot, which is exactly what "adb kill-server makes the device reboot and
+# the log disappears" looked like.  Do not add them back while debugging USB:
+# we need the device to stay up and the log to survive.
+CONFIG_CMDLINE="stack_depot_disable=on kasan.stacktrace=off kvm-arm.mode=protected cgroup_disable=pressure loglevel=8 trace_event=musb:musb_log,musb:musb_state tp_printk"
 CONFIG_CMDLINE_EXTEND=y
 # CONFIG_DMI is not set
 CONFIG_HIBERNATION=y

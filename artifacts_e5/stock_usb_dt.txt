@@ -1,0 +1,15 @@
+== device-tree top ==
+#address-cells #size-cells __symbols__ aliases apcpu-dvfs apipe-cmd-in apipe-cmd-out apipe-pcm audcp-iram@65006400 audio-dsp-dump@0 audio-dsp-dump@1 audio-dsp-dump@2 audio-dsp-dump@3 audio-mem-mgr audio-sipc audio_pipe_bthal audio_pipe_effect audio_pipe_trigger_rx audio_pipe_trigger_tx audio_pipe_voice audio_pipe_voiceproc audiocp_boot audiocp_dvfs autotest back-sensor backlight battery charger-manager chg-sensor chosen compatible cooling-devices cp_dump cpp-dvfs cpuinfo_hardware cpus dcam-if-dvfs dcam0_1_axi-dvfs dcam2_3-dvfs dcam2_3_axi-dvfs dcam_mtx-dvfs debuglog debugstat display-subsystem dmabuf dphy-312m5 dphy-416m7 dpu-dvfs dtbo dvfs_phycp dvfs_pscp ext-26m ext-32k extcon-gpio fingerprint@0 firmware flash-gpios front-sensor gpio-keys gsp-dvfs hwfeature idle-states interrupt-controller@12000000 interrupt-parent isp-dvfs jpg-dvfs lcds memory@80000000 mmsys-dvfs model modem@0 modem@1 modem@2 modem@3 mtx_data-dvfs name pa-sensor pmu psci rco-100m rco-60m rebootescrow@0 reserved-memory scene-frequency sensorhub serial-number sfp-unisoc sipa-dummy sipa-eth0 sipa-eth1 sipa-eth10 sipa-eth11 sipa-eth12 sipa-eth13 sipa-eth14 sipa-eth15 sipa-eth2 sipa-eth3 sipa-eth4 sipa-eth5 sipa-eth6 sipa-eth7 sipa-eth8 sipa-eth9 sipa-usb sipc-virt soc soc-manufacturer soc-module sound@0 sound@1 sprd,sc-id sprd-compr-audio sprd-fe-dai sprd-gsp sprd-headset sprd-map-user sprd-marlin3 sprd-pcm-audio sprd-pcm-iis sprd-routing-pcm sprd-uid thermal-sensor thermal-zones timer trusty virtual-sensor@0 vpudec-dvfs vpuenc-dvfs 
+== find usb/phy nodes ==
+--- /proc/device-tree/sipa-usb
+    props: compatible name phandle sprd,netid sprd,term-type 
+    compatible = sprd,sipa_usb 
+== hsphy tuning properties ==
+== typec / charger nodes ==
+== touch node ==
+== /proc/interrupts (usb/typec/touch) ==
+ 32:         43         23          0         10          0          0          0          0     GICv3 245 Level     22270000.i2c
+ 77:       1394          0          0          0          0          0          0          0     GICv3  40 Level     musb-hdrc.1.auto
+ 96:          1          0          0          0          0          0          0          0    spi4.0   8 Level     64400000.spi:pmic@0:typec@380
+107:          2          0          0          0          0          0          0          0  sprd-gpio  13 Edge      tlsc6x_tpd_irq
+== done ==

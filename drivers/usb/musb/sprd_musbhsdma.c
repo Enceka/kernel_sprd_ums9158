@@ -1416,7 +1416,7 @@ static void sprd_musb_urb_completion(struct musb *musb, u8 epnum, u8 is_in)
 		if (++qh->iso_idx < urb->number_of_packets) {
 			channel->status = MUSB_DMA_STATUS_FREE;
 			d++;
-			if (is_in)
+			if (is_in && musb->hops.rx_dma_program)
 				musb->hops.rx_dma_program(channel, musb, epnum, qh, urb,
 					d->offset, d->length);
 			return;
@@ -1433,10 +1433,11 @@ static void sprd_musb_urb_completion(struct musb *musb, u8 epnum, u8 is_in)
 		if (++qh->iso_idx < urb->number_of_packets) {
 			channel->status = MUSB_DMA_STATUS_FREE;
 			d++;
-			if (is_in)
+			if (is_in) {
+				if (musb->hops.rx_dma_program)
 				musb->hops.rx_dma_program(channel, musb, epnum, qh, urb,
 					d->offset, d->length);
-			else
+			} else
 				musb->hops.tx_dma_program(musb->dma_controller, hw_ep,
 					qh, urb, d->offset, d->length);
 			return;
