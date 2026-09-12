@@ -2162,33 +2162,24 @@ static int musb_sprd_probe(struct platform_device *pdev)
 		enum usb_dr_mode mode = usb_get_dr_mode(dev);
 
 		/*
-		 * usb_get_dr_mode() looks up the standard "dr_mode" spelling,
-		 * but this dts writes "dr-mode", so it reports UNKNOWN and the
-		 * mode used to fall through to MUSB_OTG below.  In OTG the
-		 * controller runs its OTG state machine and never soft
-		 * connects, which left adb offline:
+		 * This dts spells the property "dr-mode"; usb_get_dr_mode()
+		 * only knows "dr_mode", so mode stays USB_DR_MODE_UNKNOWN and
+		 * pdata.mode lands on MUSB_OTG below.  Leave it there - that
+		 * is what stock runs and it is the only configuration seen to
+		 * bring the gadget up.  From the device logs:
 		 *
-		 *   musb dr_mode: 3                      <- MUSB_OTG
-		 *   sm_work: undefined state
-		 *   sprd_musb_enable:SOFTDISCONN
+		 *   stock, MUSB_OTG (dr_mode 3): otg_start_peripheral is
+		 *     followed by "gadget D+ pullup on", adbd reaches
+		 *     FUNCTIONFS_ENABLE and the kernel reports USB_STATE, so
+		 *     adb is online.
+		 *   our MUSB_PERIPHERAL build (dr_mode 2), i.e. what reading
+		 *     the hyphenated property produces: the log stops at
+		 *     "sm_work: peripheral state", there is no pullup, no
+		 *     FUNCTIONFS_ENABLE and no USB_STATE, and adb is dead.
 		 *
-		 * Stock stays in peripheral mode, so accept the hyphenated name
-		 * as well before deciding.
+		 * So do not paper over the property-name mismatch here; the
+		 * trick that reads "dr-mode" is what killed adb.
 		 */
-		if (mode == USB_DR_MODE_UNKNOWN) {
-			const char *str;
-
-			if (!of_property_read_string(dev->of_node, "dr-mode",
-						     &str)) {
-				if (!strcmp(str, "host"))
-					mode = USB_DR_MODE_HOST;
-				else if (!strcmp(str, "peripheral"))
-					mode = USB_DR_MODE_PERIPHERAL;
-				else if (!strcmp(str, "otg"))
-					mode = USB_DR_MODE_OTG;
-			}
-		}
-
 		if (mode == USB_DR_MODE_HOST)
 			pdata.mode = MUSB_HOST;
 		else if (mode == USB_DR_MODE_PERIPHERAL)
