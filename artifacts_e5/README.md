@@ -24,7 +24,8 @@ why sprd-jpg cannot be imported.
   cross-checked against ulas-android-14 (5.15.178) and
   android_kernel_zte_ums9620_mifi_u30air (5.4.254 UMS9620 SDK)
 - Device evidence: kernel_probe/ (config.gz, kallsyms.txt, btf-vmlinux, fdt.dtb,
-  modules.txt, dmesg/pstore)
+  modules.txt, dmesg/pstore).  Re-dumped 2026-09-12 together with stock-img/;
+  see stock_img_2026-09-12.md for the measurements and for the checksum files.
 
 ## Build & repack flow
 
@@ -40,11 +41,16 @@ python3 artifacts_e5/vendor_boot/build_vendor_boot_e5.py
 ## Key facts learned from the device images
 
 - boot.img is Android boot header v4: kernel only (arm64 Image with EFI stub,
-  MZ/PE magic), ramdisk_size=0 in the stock image; Magisk patched image adds a
-  small lz4 ramdisk stub that the bootloader loads.
-- boot.img carries NO device tree (no FDT magic anywhere in the 64 MB image);
-  the bootloader loads the DT from the device's own dtbo partition. Therefore
-  repack_boot_e5.sh swaps ONLY the kernel and keeps the device's dtbo.
+  MZ/PE magic).  Measured on the 2026-09-12 dump: boot_a/b carry kernel_size
+  0x2C96A00 and a 360,840-byte LZ4 ramdisk holding Magisk markers
+  (overlay.d/.backup) - i.e. what is flashed is a Magisk-patched boot whose
+  kernel is still the stock 5.15.119, *not* a ramdisk_size=0 image (see
+  stock_img_2026-09-12.md).
+- boot.img carries NO device tree (no FDT magic in the 64 MB image); the
+  bootloader loads the DT from the device's own dtbo partition - dtb_a/b are an
+  all-zero 8 MB partition, so dtbo is the only candidate (vendor_boot does
+  carry one FDT). Therefore repack_boot_e5.sh swaps ONLY the kernel and keeps
+  the device's dtbo.
 - AVB footer on the device image uses SHA256_RSA4096; the Magisk image boots
   with a non-matching digest, so the bootloader does not enforce AVB on this
   device (unlocked). repack re-adds the footer with --algorithm NONE.

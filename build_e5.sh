@@ -23,7 +23,12 @@ export CONFIG_DTB_ORIGINAL=y
 KCFLAGS="-Wno-frame-larger-than -Wno-deprecated-declarations -Wno-constant-conversion -Wno-uninitialized-const-pointer -Wno-unused-function"
 
 # refresh .config from the committed defconfig (picks up defconfig edits)
-cp arch/arm64/configs/e5_rongyue_defconfig "$O/.config" 2>/dev/null || true
+# $O must exist first: "cp x $O/.config" fails silently when it does not, and
+# olddefconfig then quietly falls back to Kconfig defaults (e.g.
+# MALI_PLATFORM_NAME="devicetree" instead of the e5 defconfig's "qogirn6l"),
+# so the build no longer tests the defconfig at all.
+mkdir -p "$O"
+cp arch/arm64/configs/e5_rongyue_defconfig "$O/.config"
 
 echo "== olddefconfig =="
 make O="$O" olddefconfig
