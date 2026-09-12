@@ -165,6 +165,17 @@ sphinx_*/
 # Rongyue E5 build artifacts (regenerable via build_e5.sh / make_e5_dtb.sh /
 # stage_vendor_modules.sh / repack_boot_e5.sh)
 /boot-e5.img
+/boot-e5.PANICARGS.bak.img
 /vendor_modules_e5/
 /artifacts_e5/*.tar.gz
+/artifacts_e5/vendor_boot/vendor_boot_e5.img
 /nohup.out
+
+# Device dumps and reference trees - gigabytes of binary blobs, never commit.
+# (They were untracked but *not* ignored until 2026-09-12, so a plain
+#  'git add -A' would have staged ~3.8 GB.)
+/stock-img/
+/kernel_probe/
+/log-img/
+/refer/
+/artifacts_e5/incident/
