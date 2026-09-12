@@ -28,6 +28,24 @@
 #include <misc/marlin_platform.h>
 #include <misc/wcn_bus.h>
 
+#include <linux/notifier.h>
+
+/*
+ * 5G NR band-n79 coexistence notifier.  The Bluetooth driver
+ * (drivers/unisoc_platform/sprd_bt) registers on this list so it can adapt
+ * when the modem is on n79, and include/misc/wcn_bus.h declares it, so it has
+ * to exist somewhere for that module to link.
+ *
+ * Upstream defines it here too, in wcn_boot.c, and fires it from the RF
+ * configuration path - a path this older sprdwcn does not have.  Defining the
+ * head without a caller keeps Bluetooth loadable; its callback simply never
+ * runs, i.e. no n79 coexistence adaptation.  Porting the newer RF path is a
+ * separate job.
+ */
+ATOMIC_NOTIFIER_HEAD(modem_n79_notifier_list);
+EXPORT_SYMBOL_GPL(modem_n79_notifier_list);
+
+
 #include "../pcie/edma_engine.h"
 #include "../sleep/sdio_int.h"
 #include "../sleep/slp_mgr.h"
