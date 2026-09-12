@@ -28,7 +28,7 @@ def _find_stock():
     env = os.environ.get('E5_STOCK_VENDOR_BOOT')
     cands = [env] if env else []
     cands += [os.path.join(HERE, 'vendor_boot_a.img'),
-              os.path.join(HERE, '..', '..', '..', 'stock-img', 'vendor_boot_a.img'),
+              os.path.join(HERE, '..', '..', 'stock-img', 'vendor_boot_a.img'),
               '/home/hema/Workspace/e5/stock-img/vendor_boot_a.img']
     for c in cands:
         if c and os.path.exists(c):
