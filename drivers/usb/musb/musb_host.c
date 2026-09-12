@@ -2705,6 +2705,17 @@ int musb_host_alloc(struct musb *musb)
 	musb->hcd->uses_new_polling = 1;
 	musb->hcd->has_tt = 1;
 
+	/*
+	 * Vendor hooks.  The sprd port (musb_sprd.c, sprd_musbhsdma.c) calls
+	 * into the host code through these pointers, so they have to be filled
+	 * in here: a NULL one is not a no-op, it is a jump to address 0.
+	 * Only the two functions that exist in this tree are wired up -
+	 * hops.host_start and hops.rx_dma_program have no implementation here
+	 * and stay NULL, so every caller has to test for that.
+	 */
+	musb->hops.advance_schedule = musb_advance_schedule;
+	musb->hops.tx_dma_program = musb_tx_dma_program;
+
 	return 0;
 }
 
