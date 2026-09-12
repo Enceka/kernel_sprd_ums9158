@@ -191,17 +191,20 @@ build_load() {
 			fi
 		done < "$src"
 	fi
-	for b in ${3:-}; do
+	# everything we built that the stock list never mentioned has to be appended,
+	# otherwise those modules simply never get loaded (this bit bit us once: the
+	# fuel gauge was silently absent and the battery never appeared)
+	for b in "$@"; do
 		n="$(norm "$b")"
 		case " $seen " in *" $n "*) ;; *) out+=("$b") ;; esac
 	done
 	printf '%s\n' "${out[@]}" > "$dst"
 	echo "   $(basename "$dst"): ${#out[@]} entries"
 }
-build_load "/tmp/vd_load.stock.$$" "$CHK/modules.load" "${ORDER[*]}"
+build_load "/tmp/vd_load.stock.$$" "$CHK/modules.load" "${ORDER[@]}"
 for extra in modules.load.cali modules.load.charger; do
 	if [ -f "/tmp/vd_${extra}.$$" ]; then
-		build_load "/tmp/vd_${extra}.$$" "$CHK/$extra" "${ORDER[*]}"
+		build_load "/tmp/vd_${extra}.$$" "$CHK/$extra" "${ORDER[@]}"
 		sudo cp -f "$CHK/$extra" "$STAGE/lib/modules/$extra"
 	fi
 done
