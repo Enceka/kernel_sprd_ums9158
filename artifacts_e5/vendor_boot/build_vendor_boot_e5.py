@@ -16,7 +16,7 @@ Modules are taken from out_e5/modules.order (i.e. only what the *current*
 build produced) - out_e5 keeps stale .ko files from earlier builds around
 and those must never be injected.
 """
-import os, struct, subprocess, sys, shutil, glob
+import os, struct, subprocess, sys, shutil
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -71,8 +71,15 @@ for _p in (os.path.normpath(os.path.join(HERE, '..', '..',
 MODS.update(EXTRA_MODS)
 print('modules from current build: %d tree + %d out-of-tree'
       % (len(MODS) - len(EXTRA_MODS), len(EXTRA_MODS)))
-stale = [os.path.basename(p) for p in glob.glob(BUILD + '/**/*.ko', recursive=True)]
-stale = [x for x in stale if x not in MODS]
+# os.walk(followlinks=False), not a recursive glob: an O= build tree carries
+# out_e5/source -> .. (kbuild creates that symlink), and a '**' glob follows it
+# back into the source tree, which contains out_e5 again - the walk then never
+# terminates (measured: >30 min without reaching the next print).
+stale = []
+for _root, _dirs, _files in os.walk(BUILD, followlinks=False):
+    for _f in _files:
+        if _f.endswith('.ko') and _f not in MODS:
+            stale.append(_f)
 if stale:
     print('ignoring %d stale .ko left over in out_e5: %s' % (len(stale), stale[:8]))
 
