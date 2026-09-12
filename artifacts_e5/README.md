@@ -99,6 +99,62 @@ kernel release `5.15.211-g4a9bc1bdb151`.
 | `stock-img/vendor_dlkm_e5.img` | 65,454,080 | `188af55157bb3801b3e43ffa59cfd2482e380121b067e9ae39ed4c9b3f52350d` |
 | `e5-rongyue.dtb` | 202,549 | unchanged |
 
+### Re-cut 22:05, wifi board config (xpe)
+
+Built from `d2f679ce2` (wifi: sprd_wlan_combo: load the xpe board config on
+marlin3-lite AB), clean tree, kernel release `5.15.211-gd2f679ce24ae`. All 155
+modules carry that exact vermagic.
+
+The commit fixes a silent fallback in `sc2355_get_nvm_table()`: it only
+special-cased `WCN_CHIP_ID_AA`, but this device reports chip id `0x2355b001`
+(`MARLIN3L_AB_CHIPID`, i.e. `WCN_CHIP_ID_AB`), so the driver asked for
+`SYSTEM_WIFI_CONFIG_FILE` - `wifi_board_config.ini` - while the stock vendor
+module loads `wifi_board_config.xpe.ini` on the same hardware. Both files are
+7395 bytes but differ in 46 lines (section 5 board config frequency
+compensation, section 6 rate-to-power, section 7 power backoff, section 12
+debug registers), i.e. we had been running a wrong TX power / frequency
+compensation table.
+
+| artifact | size | sha256 |
+|---|---|---|
+| `out_e5/arch/arm64/boot/Image` | 34,740,736 | `d3b4ad988ec07218748164e0471a74e93cfacca93f1af645f9ddb7f3feb88562` |
+| `boot-e5.img` | 67,108,864 | `c85dd5f49185076932aff110980584a10ee7caaf6bbc35faa2a88661a17cfc48` |
+| `stock-img/vendor_boot_e5.img` | 104,857,600 | `e3654e245425b1601363888e64561432ab492e7261f89d62f2e31c9bb70ceb04` |
+| `stock-img/vendor_dlkm_e5.img` | 65,458,176 | `9e68a308ff4d5d3529e6fd0a6a9fdb3bceb0c50f25a8b8dd2632ba39f061fc21` |
+| `e5-rongyue.dtb` | 202,549 | `6ed5c7745bccb3ececb45d714dfdaaafde0a7eed8742425abd4e35e6d9d3d2fb` |
+
+- **boot**: Image is 0x2121a00 inside the 0x2c97000 region (0xb75600 free), as
+  before - the headroom is unchanged.
+- **vendor_boot**: same vbmeta move (0x4d18000 -> 0x4c42000). The script is
+  deterministic: two independent runs produced byte-identical output. It
+  defaults to writing `artifacts_e5/vendor_boot/vendor_boot_e5.img`; the
+  flashable copy is produced with
+  `E5_OUT_VENDOR_BOOT=stock-img/vendor_boot_e5.img`.
+- **vendor_dlkm**: 155 modules, `modules.load` covers all of them, labels
+  verified.
+- `git status` before this recut: `stock-img/`, `kernel_probe/`, `log-img/`,
+  `refer/` and `artifacts_e5/incident/` were untracked but *not* ignored
+  (~3.8 GB, one `git add -A` away from being committed); they are in
+  `.gitignore` now.
+
+Still open from the same session: `adb devices` reports the device as
+`offline` against our kernel. The stock device was measured as a baseline
+(`/sys/class/udc/*/state` = `configured`, `sys.usb.state` = `adb`, dmesg
+`IPD(1) open wifi_board_config.xpe.ini` + `gadget D+ pullup on`); on our last
+boot the UDC write returned EBUSY and no pullup line appeared. Verify on the
+next flash with:
+
+```sh
+dmesg | grep -E "IPD\(1\)|open wifi_board_config|gadget D\+ pullup"
+cat /sys/class/udc/*/state; getprop sys.usb.state
+```
+
+Note also that "hotspot kills wifi" is normal on this hardware:
+`dumpsys wifi` reports `STA + AP Concurrency Supported: false`, wlan0 is a
+single instance, and the stock device does exactly the same
+(`STA iface wlan0 was destroyed, stopping client mode` 27 s after associating,
+with STA reconnecting ~1 s after the hotspot is switched off).
+
 **Never build the Image and the modules from different tree states.** UTS_RELEASE
 carries both the `git describe` hash and a `-dirty` suffix when tracked files are
 modified, and the kernel refuses any module whose vermagic differs. A
