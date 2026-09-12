@@ -32,11 +32,57 @@ why sprd-jpg cannot be imported.
 ```sh
 ./build_e5.sh              # Image + modules + e5-rongyue-overlay.dtbo + ums9621-base.dtb
 ./make_e5_dtb.sh           # merge base+overlay -> e5-rongyue.dtb
-./stage_vendor_modules.sh  # collect .ko -> vendor_modules_e5/
-./repack_boot_e5.sh        # swap kernel into boot image -> boot-e5.img
+./stage_vendor_modules.sh  # collect .ko -> vendor_modules_e5/  (.gitignore'd)
+BASE=stock-img/boot_a.img ./repack_boot_e5.sh
+                           # swap kernel into boot image -> boot-e5.img
+                           # (the script's default BASE path does not exist here)
 python3 artifacts_e5/vendor_boot/build_vendor_boot_e5.py
                            # repack vendor_boot with our own first-stage modules
+./repack_vendor_dlkm.sh    # rebuild the EROFS vendor_dlkm
+                           # -> stock-img/vendor_dlkm_e5.img
 ```
+
+## Rebuild & repack, 2026-09-12 20:38
+
+First rebuild after the USB and touchscreen commits; all three images were
+regenerated from the same tree.
+
+Built from `34a5b11f6` (usb: musb host-mode NULL deref + usb31pllv always on)
+and `a293f173b` (touchscreen: tlsc6x moved to drivers/input/touchscreen, vendor
+framework dropped), with the `e05c37add` modules.load check in the repack path.
+Kernel release `5.15.211-ge05c37adde49` (clean tree, no -dirty).
+
+`make Image modules dtbs` finished with no errors: 155 .ko, `modules-only.symvers`
+produced normally. (A single-target `make O=out_e5 <path>.o` deletes that file and
+the next modpost run then reports bogus unresolved symbols for wcn_bsp - that is
+build-state damage, not a real symbol problem.)
+
+| artifact | size | sha256 |
+|---|---|---|
+| `out_e5/arch/arm64/boot/Image` | 34,740,736 | `16ec5bda5a99b4d89229ab09414419d353648afa92d266d141c1e14c2bb379a7` |
+| `boot-e5.img` | 67,108,864 | `5c7e458cea71d26437807af1e85a39dcc55c02c29ae4fe21d0659930d9fccfd6` |
+| `stock-img/vendor_boot_e5.img` | 104,857,600 | `8668bf8f59e5b0a624b73b2fd807b47f1b364efa5d9490180ad651c105b58d0b` |
+| `stock-img/vendor_dlkm_e5.img` | 65,458,176 | `c8bc87ff73a2adc7d42d1a1965e8ac2662fed47231193189722c42ef6088dbe4` |
+| `e5-rongyue.dtb` | 202,549 | `6ed5c7745bccb3ececb45d714dfdaaafde0a7eed8742425abd4e35e6d9d3d2fb` |
+
+- **boot**: repacked on `stock-img/boot_a.img` (the stock-kernel + Magisk-ramdisk
+  container). The new Image is 0x2121a00 bytes inside a 0x2c97000-byte region,
+  i.e. 0xb75600 still free - the headroom check that has bitten us before is fine.
+- **vendor_boot**: module payload replaced. 42 modules in the first-stage load
+  list (stock asks for 83); 41 stock-only entries are now `=y` in our kernel.
+  The ramdisk shrank, so vbmeta was moved and the AVBf footer repointed
+  (vbmeta 0x4d18000 -> 0x4c42000).
+- **vendor_dlkm**: 155 modules, `modules.load` lists 155 entries and covers every
+  shipped .ko (the check added in `e05c37add`), SELinux labels
+  `u:object_r:vendor_file:s0` verified on the mounted image, 65,458,176 bytes
+  against the stock 111,296,512 - flashable as is.
+
+Nothing above is tracked in git (`boot-e5.img`, `*.dtb` and `stock-img/` are
+ignored/untracked); what is committed is the source, the scripts and this record.
+
+Flash: `boot` <- `boot-e5.img`, `vendor_boot` <- `stock-img/vendor_boot_e5.img`,
+`vendor_dlkm` <- `stock-img/vendor_dlkm_e5.img` (fastbootd - it is a logical
+partition inside super, there is no `/dev/block/by-name/vendor_dlkm`).
 
 ## Key facts learned from the device images
 
