@@ -354,7 +354,9 @@ qogirn6lite**，正是本 SoC；单个驱动 `sprd_campd`，无重名问题。
   (`advance_schedule`)、`str x8,[x19,#0x2380]` (`tx_dma_program`)；
   `host_start`(0x2370)/`rx_dma_program`(0x2388) 仍为 0，由调用点保护。
 
-剩下只是刷机实测（重打包 vendor_dlkm 或替换模块后插线看是否还 Oops）。
+剩下只是刷机实测 —— 09-12 晚间已用本树重新编译并打好三个镜像（内核串
+`5.15.211-ge05c37adde49`，尺寸与 sha256 见 `README.md` 的 "Rebuild & repack,
+2026-09-12 20:38" 一节），插线看是否还 Oops。
 
 ## 6. 下一步
 
