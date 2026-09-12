@@ -245,6 +245,28 @@ sudo mount -o loop,ro "$RESULT" "$CHK"
 MOUNTS="$CHK"
 ko=$(ls "$CHK"/lib/modules/*.ko | wc -l)
 echo "   modules in image      : $ko (expected ${#ORDER[@]})"
+
+# modules.load must list exactly the modules we ship.  A missing entry is silent
+# here and fatal at runtime - the module is simply never loaded (that is how the
+# fuel gauge went missing once and the battery never appeared); an extra entry
+# makes init/modprobe log a failure on every boot.
+sed 's#^.*/##' "$CHK/lib/modules/modules.load" | grep -v '^[[:space:]]*$' | sort -u > /tmp/vd_load.check.$$
+miss=""
+while read -r n; do [ -f "$CHK/lib/modules/$n" ] || miss="$miss $n"; done < /tmp/vd_load.check.$$
+for f in "$CHK"/lib/modules/*.ko; do
+	n=$(basename "$f")
+	grep -qxF "$n" /tmp/vd_load.check.$$ || miss="$miss $n"
+done
+rm -f /tmp/vd_load.check.$$
+if [ -n "$miss" ]; then
+	echo "   !! modules.load does not match the shipped modules:$miss" >&2
+	die "modules.load and the image disagree.
+     Listed but absent  -> modprobe error at every boot.
+     Shipped but absent -> the driver never loads (this cost us the battery once).
+     The generation logic is build_load(): stock order is kept, and every module
+     we built that stock never listed must be appended."
+fi
+echo "   modules.load          : $(wc -l < "$CHK/lib/modules/modules.load") entries, covers all $ko modules"
 bad=""
 for f in $(ls "$CHK"/lib/modules/*.ko | head -3) "$CHK/lib/modules/modules.dep" "$CHK/etc/build.prop"; do
 	l=$(sudo getfattr -n security.selinux "$f" 2>/dev/null | sed -n 's/.*security.selinux="\(.*\)"/\1/p')
