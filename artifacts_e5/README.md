@@ -84,6 +84,47 @@ Flash: `boot` <- `boot-e5.img`, `vendor_boot` <- `stock-img/vendor_boot_e5.img`,
 `vendor_dlkm` <- `stock-img/vendor_dlkm_e5.img` (fastbootd - it is a logical
 partition inside super, there is no `/dev/block/by-name/vendor_dlkm`).
 
+### Re-cut 21:29, with the wifi and adb fixes
+
+The device blackbox logs (see below) showed two places where our build did not
+match stock; both are fixed in `0cedbf784` (wifi board config) and `fd321d33b`
+(musb dr_mode), and all three images were rebuilt from `4a9bc1bdb`, clean tree,
+kernel release `5.15.211-g4a9bc1bdb151`.
+
+| artifact | size | sha256 |
+|---|---|---|
+| `out_e5/arch/arm64/boot/Image` | 34,740,736 | `a7ace88e4c7dd693023b512ce27a5eedb5e52509f7c96d0da9fe96ab4106ce88` |
+| `boot-e5.img` | 67,108,864 | `233da1c8241c200dbfc588b9a25aa5f81e60fc2041988ece4c2788ab45b4b7f5` |
+| `stock-img/vendor_boot_e5.img` | 104,857,600 | `dc0397328d17a9598079413b8ef01d80f61b3eb5f5c9910f002464d7ed7f317b` |
+| `stock-img/vendor_dlkm_e5.img` | 65,454,080 | `188af55157bb3801b3e43ffa59cfd2482e380121b067e9ae39ed4c9b3f52350d` |
+| `e5-rongyue.dtb` | 202,549 | unchanged |
+
+**Never build the Image and the modules from different tree states.** UTS_RELEASE
+carries both the `git describe` hash and a `-dirty` suffix when tracked files are
+modified, and the kernel refuses any module whose vermagic differs. A
+module-only rebuild on a dirty tree produces `...-dirty` modules against a clean
+Image, and nothing loads; the same trap appears if HEAD moves between building
+the Image and building the modules. Commit first, then build `Image modules`
+together, and check:
+
+```sh
+cat out_e5/include/generated/utsrelease.h     # 5.15.211-g<hash>, no -dirty
+modinfo -F vermagic out_e5/drivers/usb/musb/musb_sprd.ko   # must match it
+```
+
+**Identifying ylog sessions.** Every `log-img/blackbox/ylog/<n>/log_<n>.tar.gz`
+holds the kernel release in the first lines of its `kernel.log`, which is the
+quickest way to tell whether a session ran our kernel or fell back to stock:
+
+```sh
+cd log-img/blackbox/ylog
+for f in */log_*.tar.gz; do s=${f%%/*}; printf '%-4s %s\n' "$s" \
+  "$(tar xzOf "$f" kernel.log 2>/dev/null | grep -m1 -oE 'Linux version [^ ]+')"; done
+```
+
+As of 2026-09-12: 43 and 46 are ours (the latter `ge05c37adde49`), 44 and 47 are
+stock - so 47, the newest, is a stock boot, not a failed attempt of ours.
+
 ## Key facts learned from the device images
 
 - boot.img is Android boot header v4: kernel only (arm64 Image with EFI stub,
