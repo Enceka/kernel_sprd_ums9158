@@ -17,25 +17,25 @@
 #define __tlsc6x_main_h__
 
 #include "tlsc6x_config.h"
-#include "ztp_common.h"
+#include "tlsc6x_core.h"
 
 #define CHSC_AUTO_UPD_FNAME	"chsc_ctp_fw_"
 #define tlsc_info(x...) \
 	do { \
-		pr_info("[ZTE_LDD_TP][TPD_TLSC] " x);\
-		tpd_save_last_log("[ZTE_LDD_TP][TPD_TLSC] " x);\
+		pr_info("[tlsc6x] " x);\
+		tpd_save_last_log("[tlsc6x] " x);\
 	} while (0)
 
 #define tlsc_err(x...) \
 	do { \
-		pr_err("[ZTE_LDD_TP][TPD_TLSC][error] " x);\
-		tpd_save_last_log("[ZTE_LDD_TP][TPD_TLSC][error] " x);\
+		pr_err("[tlsc6x][error] " x);\
+		tpd_save_last_log("[tlsc6x][error] " x);\
 	} while (0)
 
 #define TLSC_FUNC_ENTER() \
 	do { \
-		pr_info("[ZTE_LDD_TP][TPD_TLSC]%s: Enter\n", __func__);\
-		tpd_save_last_log("[ZTE_LDD_TP][TPD_TLSC]%s: Enter\n", __func__);\
+		pr_info("[tlsc6x]%s: Enter\n", __func__);\
+		tpd_save_last_log("[tlsc6x]%s: Enter\n", __func__);\
 	} while (0)
 
 struct tlsc6x_platform_data {

@@ -1,6 +1,0 @@
-# SPDX-License-Identifier: GPL-2.0
-#
-# Vendor drivers ported to the Rongyue E5 (UMS9621) tree.
-#
-
-source "drivers/vendor/common/touchscreen_v2/Kconfig"

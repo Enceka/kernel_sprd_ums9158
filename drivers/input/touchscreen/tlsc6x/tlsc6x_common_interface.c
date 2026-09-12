@@ -3,7 +3,7 @@
 #include <linux/fs.h>
 #include <linux/slab.h>
 #include "tlsc6x_main.h"
-#include "ztp_common.h"
+#include "tlsc6x_core.h"
 #include <linux/gpio.h>
 #include <linux/delay.h>
 
