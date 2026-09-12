@@ -182,6 +182,70 @@ OPPO 原表第 1 号是 **sia8xx**，直接用会去驱动错误的功放芯片�
 `e5-rongyue.dtb`，触摸会直接消失。板级 overlay 本身是有内容的（343 行，
 含 `&cm` 充电节点），只是缺这一块。
 
+## 5b. 有线 adb 不工作：USB PHY 驱动重名竞态
+
+电池在 `08b8f7587` 之后已经能读数和充电，但有线 adb 不通。诊断走的是
+**对比原厂同机启动**，数据来自 `/blackbox/ylog`：session 24 是自编内核
+（`5.15.211-g08b8f75879da`，即 `08b8f7587`），session 26 是原厂 —— 两份都有
+完整 `kernel.log` + `android.log`，不需要串口也不需要 adb。
+
+### 先排除掉的（两边表现一致，都是良性）
+
+| 现象 | 判定 |
+|---|---|
+| `init: symlink .../ffs.adb ... failed: File exists` | **原厂同样报**。vendor rc 先组好了 gadget，Android 通用 rc 再来一次必然失败 |
+| `init: write .../g1/UDC ... failed: Device or resource busy` | **原厂同样报**，同上 |
+| `musb-sprd: failed to get pmu regmap!` | **原厂同样报** |
+| `sprd-hsphy: No separate ID extcon device` | **原厂同样报** |
+| `sprd-hsphy: failed to get refclk_cfg regmap!` | 自编独有，但代码里是 `dev_warn` + `regmap_ptr = NULL`，该 regmap 本就是可选的 |
+| `sprd_eye_pattern_prepared failed, ret = -22` | 自编独有，但默认 eye pattern 已从 PHY trimming 寄存器读到；失败的只是 dtb 里不存在的板级微调属性（`hsphy-tuneeq` 等），且调用方只 `dev_warn` |
+
+另外注意：整条 probe 链其实是能走通的 ——
+`extcon-gpio`(2.117) → `typec@380`(2.121) → `hsphy`(2.126) → `musb`(2.139)
+→ gadget 进 peripheral → adbd 拿到 `FUNCTIONFS_BIND` **和 `FUNCTIONFS_ENABLE`**。
+所以那一次启动 USB 实际是枚举成功的，只是 BIND→ENABLE 花了 **24 秒**
+（原厂 0.7 秒），而且是在一次 vbus 0→1 抖动之后才成功。
+
+### 真正的 bug
+
+```
+[2.065] phy_sprd_qogirn6lite 加载，probe 64300000.hsphy
+[2.349] Error: Driver 'sprd-hsphy' is already registered, aborting...
+[2.349] init_module [phy_sprd_qogirn6pro] returned -16
+[2.349] modprobe: Failed to load phy-sprd-qogirn6pro.ko: Device or resource busy
+[2.349] modprobe: Loading phy-sprd-sharkl5.ko ...
+```
+
+**所有 sprd USB2 PHY 驱动都注册同一个 platform driver 名 `"sprd-hsphy"`**
+（pike2 / qogirl6 / qogirn6lite / qogirn6pro / sharkl3 / sharkl5 / sharkle / ums512，
+共 8 个）。厂商设计上每颗 SoC 只编一个，原厂镜像里也确实只有
+`phy-sprd-qogirn6lite.ko` 一个。而我们的 defconfig 开了 **三个**。
+
+谁先加载谁赢，顺序由重打包后 vendor_dlkm 的 `modules.load`/`modules.dep` 决定，
+**不保证**。session 24 那次运气好是 n6lite 先注册；一旦换成 n6pro 或 sharkl5 先赢，
+它们的 compatible 不匹配 `sprd,qogirn6lite-phy` → `64300000.hsphy` 永远不 probe
+→ `64a00000.usb` 一直卡在 `-517` → **根本没有 UDC**。这与"有线 adb 时好时坏"吻合。
+
+已修（`e6aba4003`）：只保留 `SPRD_QOGIRN6LITE_USB2_PHY`。
+`SPRD_USB_DUMMY_PHY` 保留 —— 它注册的是 `sprd-dummy-phy` / 匹配
+`sprd,usb-dummy-phy`，不可能冲突。
+
+**做完之后全树扫了一遍同类问题**（"同一个 platform driver 名被本 defconfig 里
+多个已启用模块占用"），结果为空。这个检查以后值得复用。
+
+**诚实说明**：session 24 那次最终是枚举成功的，所以这修的是一个**已证实存在的竞态**，
+不是一个复现出来的硬失败。要确认 adb 恢复仍需实际刷机验证。
+
+### 顺带发现：vendor_dlkm 里还有装不进去的陈旧模块
+
+```
+modprobe: Failed to load module sprd_wdh.ko: Exec format error
+modprobe: Failed to load module sprd-dmaengine-pcm.ko: Exec format error
+modprobe: Failed to load module sprd-compr-2stage-dma.ko: Exec format error
+```
+这三个是原厂旧模块残留（我们没有产出同名替换）。其中后两个正是本轮 §2 导入的音频模块
+—— 启用后重打包即可消除。
+
 ## 6. 下一步
 
 1. 决定是否在 `e5_rongyue_defconfig` 启用本轮导入的 25 个模块
@@ -192,4 +256,7 @@ OPPO 原表第 1 号是 **sia8xx**，直接用会去驱动错误的功放芯片�
    是同一块硬件的两个驱动。原厂只有 `mcdt_hw_r2p0.ko`、没有 `sprd-mcdt.ko`，
    **两者不应同时开**。当前 defconfig 开的是 mainline 那个，未处理；
 3. 把 `tlsc6x@2e` 节点补进 `e5-rongyue-overlay.dts`（见 §5）；
-4. `ion_ipc_trusty` 现在有源码了，可以重新评估 09-11 文档 §5 里那条遗留项。
+4. `ion_ipc_trusty` 现在有源码了，可以重新评估 09-11 文档 §5 里那条遗留项；
+5. 刷机验证 §5b 的 PHY 修复是否让有线 adb 稳定；若仍不稳，下一个怀疑对象是
+   BIND→ENABLE 那 24 秒延迟（原厂 0.7 秒），可从 `musb-sprd` 的
+   `sm_work` 状态机与 vbus 事件时序入手。
