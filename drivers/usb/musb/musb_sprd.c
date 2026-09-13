@@ -1416,7 +1416,22 @@ static void musb_sprd_start_gadget(struct musb *musb)
 	 */
 	power |= MUSB_POWER_ENSUSPEND;
 
+	/*
+	 * POWER is written as a whole register here, so it must not drop the D+
+	 * pullup the UDC core already asked for: musb->softconnect is the shadow
+	 * musb_gadget_pullup() compares against, and clearing SOFTCONN behind its
+	 * back makes the later usb_gadget_connect() a no-op ("is_on !=
+	 * musb->softconnect" is false), so flush_delayed_work() re-applies
+	 * nothing and the controller stays soft-disconnected until the cable is
+	 * replugged.  Keep the hardware consistent with the shadow.
+	 */
+	if (musb->softconnect)
+		power |= MUSB_POWER_SOFTCONN;
+
 	musb_writeb(regs, MUSB_POWER, power);
+
+	dev_info(musb->controller, "sprd start_gadget: POWER=0x%02x softconnect=%d\n",
+		 power, musb->softconnect);
 
 	devctl = musb_readb(regs, MUSB_DEVCTL);
 	devctl &= ~MUSB_DEVCTL_SESSION;
