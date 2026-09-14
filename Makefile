@@ -831,6 +831,13 @@ ifdef CONFIG_CC_IS_CLANG
 KBUILD_CPPFLAGS += -Qunused-arguments
 # The kernel builds with '-std=gnu89' so use of GNU extensions is acceptable.
 KBUILD_CFLAGS += -Wno-gnu
+# Several vendor Kbuild/Makefiles carry GCC-only "-Wno-<warning>" flags, e.g.
+# -Wno-frame-larger-than, -Wno-alloc-size-larger-than, -Wno-maybe-uninitialized,
+# -Wno-misleading-indentation. GCC silently ignores -W options it does not know,
+# but clang reports them as -Wunknown-warning-option, which CONFIG_WERROR=y
+# (default y in this tree, see init/Kconfig) promotes to a hard error. Accept
+# unknown -Wno-* options instead of failing on them.
+KBUILD_CFLAGS += -Wno-unknown-warning-option
 # CLANG uses a _MergedGlobals as optimization, but this breaks modpost, as the
 # source of a reference will be _MergedGlobals and not on of the whitelisted names.
 # See modpost pattern 2
