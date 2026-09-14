@@ -908,6 +908,14 @@ CONFIG_STACK_HASH_ORDER=12
 CONFIG_PRINTK_TIME=y
 CONFIG_PRINTK_CALLER=y
 CONFIG_DYNAMIC_DEBUG=y
+# Warnings are not errors here. The vendored sources are written for GCC and
+# trip real clang warnings (unused function, maybe-uninitialized, ...) that
+# CONFIG_WERROR turns into hard build errors. This tree changed WERROR's default
+# to y in init/Kconfig (upstream defaults to COMPILE_TEST), so it has to be
+# turned off explicitly rather than left out. The per-diagnostic -Werror=xxx
+# flags in the top Makefile are unaffected and still fail the build on real
+# mistakes. Re-enable once the tree is warning-clean under clang.
+# CONFIG_WERROR is not set
 CONFIG_DEBUG_INFO=y
 CONFIG_DEBUG_INFO_DWARF4=y
 # BTF is deliberately OFF. Nothing in a TWRP recovery boot uses it, and
