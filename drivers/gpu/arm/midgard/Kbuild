@@ -206,7 +206,12 @@ ccflags-y += \
     -I$(src)/../../../../include
 ccflags-y += $(DEFINES)
 ccflags-y += -Wno-macro-redefined
-ccflags-y += -Wno-frame-larger-than
+# clang only accepts the "=<n>" form of this option; the bare GCC spelling is
+# rejected as -Wunknown-warning-option, and CONFIG_WERROR=y promotes that to a
+# hard error. Verified with clang-r416183b1: "-Wno-frame-larger-than=" is
+# accepted and really does suppress the warning, matching the GCC form's intent.
+ccflags-$(CONFIG_CC_IS_CLANG) += -Wno-frame-larger-than=
+ccflags-$(CONFIG_CC_IS_GCC) += -Wno-frame-larger-than
 subdir-ccflags-y += $(ccflags-y)
 
 #
