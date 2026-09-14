@@ -910,7 +910,15 @@ CONFIG_PRINTK_CALLER=y
 CONFIG_DYNAMIC_DEBUG=y
 CONFIG_DEBUG_INFO=y
 CONFIG_DEBUG_INFO_DWARF4=y
-CONFIG_DEBUG_INFO_BTF=y
+# BTF is deliberately OFF. Nothing in a TWRP recovery boot uses it, and
+# enabling it makes the kernel build the host tool
+# tools/bpf/resolve_btfids, which needs a *host* `ld` and `ar`. AOSP's
+# path_interposer marks ld/ar Forbidden, and Forbidden tools are not even
+# symlinked into out/.path, so a bare `ld` is missing from $PATH entirely
+# (=> "/bin/sh: ld: command not found", exit 127). Its clang prebuilt
+# (clang-r416183b1/bin) also ships only `lld`, not the `ld.lld` that
+# `-fuse-ld=lld` looks for.
+# CONFIG_DEBUG_INFO_BTF is not set
 CONFIG_HEADERS_INSTALL=y
 # CONFIG_SECTION_MISMATCH_WARN_ONLY is not set
 CONFIG_MAGIC_SYSRQ=y
