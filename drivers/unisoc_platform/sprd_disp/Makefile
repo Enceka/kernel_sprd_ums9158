@@ -199,8 +199,17 @@ obj-$(CONFIG_UNISOC_DISP) := sprd-drm.o
 
 # 5.15.211 backports the generic MIN/MAX/in_range macros; this driver
 # predates them and defines its own versions of the same names.
-ccflags-y += -Wno-macro-redefined -Wno-frame-larger-than
-subdir-ccflags-y += -Wno-macro-redefined -Wno-frame-larger-than
+#
+# clang only knows the "=<n>" form of -Wframe-larger-than; the bare GCC spelling
+# is an unknown option, and CONFIG_WERROR=y makes that fatal. Same fix as
+# drivers/gpu/arm/midgard/Kbuild.
+ifeq ($(CONFIG_CC_IS_CLANG),y)
+NO_FRAME_LARGER_THAN := -Wno-frame-larger-than=
+else
+NO_FRAME_LARGER_THAN := -Wno-frame-larger-than
+endif
+ccflags-y += -Wno-macro-redefined $(NO_FRAME_LARGER_THAN)
+subdir-ccflags-y += -Wno-macro-redefined $(NO_FRAME_LARGER_THAN)
 
 # LCD bias chip (OCP2131), called from sprd_panel_prepare(). Built as its own
 # module: it has its own module_init, so listing it in sprd-drm-y would
