@@ -892,24 +892,21 @@ static ssize_t sy65153_register_table_show(struct device *dev,
 		attr_sy65153_lookup_reg);
 	struct sy65153_wl_charger_info *info = sy65153_sysfs->info;
 	int i, len, idx = 0;
-	char reg_tab_buf[2000];
 
 	if (!info)
 		return snprintf(buf, PAGE_SIZE, "%s sy65153_sysfs->info is null\n", __func__);
 
-	memset(reg_tab_buf, '\0', sizeof(reg_tab_buf));
-	len = snprintf(reg_tab_buf + idx, sizeof(reg_tab_buf) - idx,
-		       "Format: [id] [addr] [desc]\n");
+	len = scnprintf(buf + idx, PAGE_SIZE - idx, "Format: [id] [addr] [desc]\n");
 	idx += len;
 
 	for (i = 0; i < SY65153_REG_NUM; i++) {
-		len = snprintf(reg_tab_buf + idx, sizeof(reg_tab_buf) - idx,
-			       "[%d] [REG_0x%.2x] [%s]; \n",
-			       reg_tab[i].id, reg_tab[i].addr, reg_tab[i].name);
+		len = scnprintf(buf + idx, PAGE_SIZE - idx,
+				"[%d] [REG_0x%.2x] [%s]; \n",
+				reg_tab[i].id, reg_tab[i].addr, reg_tab[i].name);
 		idx += len;
 	}
 
-	return snprintf(buf, PAGE_SIZE, "%s\n", reg_tab_buf);
+	return idx;
 }
 
 static ssize_t sy65153_dump_register_show(struct device *dev,
