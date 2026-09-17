@@ -111,7 +111,14 @@ static int sprd_iq_thread(void *data)
 	return 0;
 }
 
-#if IS_ENABLED(CONFIG_USB_F_VSERIAL)
+/*
+ * The only caller is _kernel_vser_register_callback(), which expands to a real
+ * call just when CONFIG_USB_F_VSERIAL_BYPASS_USER is enabled (and to nothing
+ * otherwise), while the underlying kernel_vser_register_callback() symbol only
+ * exists under the same condition.  Gate the definition the same way so it is
+ * not dead code - and an unused function warning - when bypass mode is off.
+ */
+#if IS_ENABLED(CONFIG_USB_F_VSERIAL) && IS_ENABLED(CONFIG_USB_F_VSERIAL_BYPASS_USER)
 static void sprd_iq_complete(char *buf,  unsigned int length, void *unused)
 {
 	char *vaddr;
