@@ -649,6 +649,22 @@ static const struct panfrost_compatible mediatek_mt8183_data = {
 	.pm_domain_names = mediatek_mt8183_pm_domains,
 };
 
+/*
+ * Unisoc/Spreadtrum parts (Mali-G57 "Natt" on UMS9620/9621).
+ *
+ * There is no generic power domain for the GPU here: the PMU/APB syscon
+ * sequence that takes the GPU out of reset lives in the vendor kbase
+ * driver's platform code, and panfrost_sprd.c reproduces it.  The GPU's
+ * DCDC is a PMIC register write rather than a regulator consumer and the
+ * frequency is chosen by the SoC's hardware DVFS engine, so there is no
+ * supply and no devfreq.
+ */
+static const struct panfrost_compatible sprd_mali_data = {
+	.num_supplies = 0,
+	.num_pm_domains = 0,
+	.no_devfreq = true,
+};
+
 static const struct of_device_id dt_match[] = {
 	/* Set first to probe before the generic compatibles */
 	{ .compatible = "amlogic,meson-gxm-mali",
@@ -666,6 +682,7 @@ static const struct of_device_id dt_match[] = {
 	{ .compatible = "arm,mali-t880", .data = &default_data, },
 	{ .compatible = "arm,mali-bifrost", .data = &default_data, },
 	{ .compatible = "mediatek,mt8183-mali", .data = &mediatek_mt8183_data },
+	{ .compatible = "sprd,mali-natt", .data = &sprd_mali_data },
 	{}
 };
 MODULE_DEVICE_TABLE(of, dt_match);

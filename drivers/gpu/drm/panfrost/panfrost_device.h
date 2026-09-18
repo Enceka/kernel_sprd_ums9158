@@ -20,6 +20,7 @@ struct panfrost_mmu;
 struct panfrost_job_slot;
 struct panfrost_job;
 struct panfrost_perfcnt;
+struct panfrost_sprd;
 
 #define NUM_JOB_SLOTS 3
 #define MAX_PM_DOMAINS 3
@@ -74,6 +75,15 @@ struct panfrost_compatible {
 
 	/* Vendor implementation quirks callback */
 	void (*vendor_quirk)(struct panfrost_device *pfdev);
+
+	/*
+	 * Some SoCs clock their GPU from a hardware DVFS engine that the
+	 * generic OPP/devfreq layer cannot drive: Unisoc picks a frequency by
+	 * writing an index into a syscon register and the PLL behind the GPU
+	 * is shared with the rest of the SoC, so clk_set_rate() must not be
+	 * used on it.  Skip devfreq on those parts.
+	 */
+	bool no_devfreq;
 };
 
 struct panfrost_device {
@@ -120,6 +130,9 @@ struct panfrost_device {
 	struct shrinker shrinker;
 
 	struct panfrost_devfreq pfdevfreq;
+
+	/* SoC-specific power/clock glue, see panfrost_sprd.c */
+	struct panfrost_sprd *sprd;
 };
 
 struct panfrost_mmu {
@@ -254,6 +267,8 @@ panfrost_exception_is_fault(u32 exception_code)
 const char *panfrost_exception_name(u32 exception_code);
 bool panfrost_exception_needs_reset(const struct panfrost_device *pfdev,
 				    u32 exception_code);
+
+int panfrost_irq_get(struct panfrost_device *pfdev, const char *name);
 
 static inline void
 panfrost_device_schedule_reset(struct panfrost_device *pfdev)
