@@ -209,6 +209,11 @@ err:
  * device trees use ("JOB", "MMU", "GPU"): of_irq_get_byname() is case
  * sensitive, and on some SoCs the only device tree we can use is the one the
  * vendor BSP wrote for kbase.
+ *
+ * The first attempt is the *_optional() variant, which does not log: with the
+ * plain one a device tree that needs the fallback prints "IRQ gpu not found"
+ * (and one per interrupt) before each lookup succeeds, which reads like a
+ * failure and is not one.
  */
 int panfrost_irq_get(struct panfrost_device *pfdev, const char *name)
 {
@@ -216,7 +221,7 @@ int panfrost_irq_get(struct panfrost_device *pfdev, const char *name)
 	const char *irq_name;
 	int irq, i;
 
-	irq = platform_get_irq_byname(pfdev->pdev, name);
+	irq = platform_get_irq_byname_optional(pfdev->pdev, name);
 	if (irq != -EPROBE_DEFER && irq >= 0)
 		return irq;
 
@@ -225,8 +230,11 @@ int panfrost_irq_get(struct panfrost_device *pfdev, const char *name)
 						  &irq_name))
 			break;
 
-		if (!strcasecmp(irq_name, name))
+		if (!strcasecmp(irq_name, name)) {
+			dev_dbg(pfdev->dev, "irq \"%s\" is \"%s\" in this dtb\n",
+				name, irq_name);
 			return platform_get_irq(pfdev->pdev, i);
+		}
 	}
 
 	return irq;
