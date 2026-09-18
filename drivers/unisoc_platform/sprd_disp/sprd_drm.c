@@ -14,6 +14,7 @@
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_drv.h>
+#include <drm/drm_fb_helper.h>
 #include <drm/drm_gem_cma_helper.h>
 #include <drm/drm_gem_framebuffer_helper.h>
 #include <drm/drm_mipi_dsi.h>
@@ -416,6 +417,16 @@ static int sprd_drm_bind(struct device *dev)
 			&sprd->post_worker, "sprd-drm");
 	sched_setscheduler(sprd->post_thread, SCHED_FIFO, &param);
 	kthread_init_work(&sprd->post_work, sprd_commit_work);
+
+	/*
+	 * e5-linux: expose a legacy fbdev on top of the vendor KMS device.
+	 * The driver never called drm_fbdev_generic_setup(), so
+	 * CONFIG_DRM_FBDEV_EMULATION on its own produced no /dev/fb0 -- and
+	 * /dev/fb0 is what the only glibc Mali UMD published for Valhall
+	 * r41p0 (the fbdev variant) talks to.  Harmless when the option is
+	 * off: the helper is a static inline stub then.
+	 */
+	drm_fbdev_generic_setup(drm, 32);
 
 	return 0;
 
