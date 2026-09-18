@@ -29,6 +29,11 @@ ifeq ($(TARGET_BUILD_VARIANT),user)
 ccflags-y += -DFLAG_WCN_USER
 endif
 
+# Same switch for builds that are not driven by Android's lunch target, which is
+# every build this repository makes: see the Kconfig help in the parent
+# directory for what the user variant changes (the assert policy above all).
+ccflags-$(CONFIG_UNISOC_WCN_BSP_USER_VARIANT) += -DFLAG_WCN_USER
+
 obj-y := marlin.o
 marlin-y += pcie_boot.o
 marlin-y += wcn_swd_dap.o
