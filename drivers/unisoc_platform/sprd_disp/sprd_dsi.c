@@ -494,6 +494,24 @@ static int sprd_dsi_umb9230s_attach(struct sprd_dsi *dsi)
 	return 0;
 }
 
+/*
+ * e5-linux: the MIPI panel is a child device that probes *after*
+ * drm_dev_register(), so when drm_fbdev_generic_setup() ran the DSI connector
+ * still reported "disconnected" and no /dev/fb0 was ever created.  Once
+ * dsi->panel exists the DRM clients have to be told to look again -- and that
+ * has to happen from a workqueue (and a little later), because the hotplug ends
+ * in a modeset that walks the very panel/DSI paths the probe that got us here
+ * is still holding.
+ */
+static void sprd_dsi_fbdev_hotplug_work(struct work_struct *work)
+{
+	struct sprd_dsi *dsi = container_of(to_delayed_work(work),
+					    struct sprd_dsi, fbdev_hotplug_work);
+
+	if (dsi->connector.dev)
+		drm_kms_helper_hotplug_event(dsi->connector.dev);
+}
+
 static int sprd_dsi_host_attach(struct mipi_dsi_host *host,
 			   struct mipi_dsi_device *slave)
 {
@@ -576,6 +594,9 @@ static int sprd_dsi_host_attach(struct mipi_dsi_host *host,
 		ctx_slave->byte_clk = ctx->byte_clk;
 		ctx_slave->esc_clk = ctx->esc_clk;
 	}
+
+	/* the panel is attached now: let the DRM clients re-probe (see above) */
+	schedule_delayed_work(&dsi->fbdev_hotplug_work, msecs_to_jiffies(1000));
 
 	return 0;
 }
@@ -887,6 +908,8 @@ static int sprd_dsi_bind(struct device *dev, struct device *master, void *data)
 	struct drm_device *drm = data;
 	struct sprd_dsi *dsi = dev_get_drvdata(dev);
 	int ret;
+
+	INIT_DELAYED_WORK(&dsi->fbdev_hotplug_work, sprd_dsi_fbdev_hotplug_work);
 
 	ret = sprd_dsi_encoder_init(drm, dsi);
 	if (ret)

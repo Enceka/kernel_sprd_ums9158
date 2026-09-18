@@ -8,6 +8,7 @@
 
 #include <linux/of.h>
 #include <linux/device.h>
+#include <linux/workqueue.h>
 #include <video/videomode.h>
 
 #include <drm/drm_bridge.h>
@@ -246,6 +247,9 @@ struct sprd_dsi {
 	u32 dual_dsi_en;
 
 	struct umb9230s_device *umb9230s;
+
+	/* e5-linux: deferred DRM client re-probe, see sprd_dsi_host_attach() */
+	struct delayed_work fbdev_hotplug_work;
 };
 
 #ifdef CONFIG_DRM_SPRD_DSI
