@@ -1419,6 +1419,19 @@ u32 impd_get_impd_val(void)
 {
    struct sprd_headset *hdst = sprd_hdst;
 
+   /*
+    * The "IMPD ENABLE" mixer control lands here, so any ALSA client can
+    * call it at any time.  sprd_hdst is published by the platform probe,
+    * but the regulator table is only filled in by the later codec-side
+    * probe (sprd_headset_power_init); in between, the regulator lookup
+    * strcmp()s a NULL name and the kernel dies -- that is what alsactl
+    * restore hit on every boot that lost the race.
+    */
+   if (!hdst || !hdst->power_manager.power[HDST_REGULATOR_COUNT - 1].name) {
+	   pr_warn("%s: headset not ready, no impedance measurement\n", __func__);
+	   return 0;
+   }
+
    return sprd_headset_get_impd_val(hdst, false);
 }
 

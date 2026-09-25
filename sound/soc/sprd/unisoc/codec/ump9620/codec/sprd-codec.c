@@ -4334,13 +4334,19 @@ static int sprd_hf_impd_cal_put(struct snd_kcontrol *kcontrol,
 	struct snd_soc_component *codec = snd_soc_kcontrol_component(kcontrol);
 	struct sprd_codec_priv *sprd_codec = snd_soc_component_get_drvdata(codec);
 
-	sprd_codec->impd_en = !!ucontrol->value.integer.value[0];
+	bool en = !!ucontrol->value.integer.value[0];
+
+	if (en == sprd_codec->impd_en)
+		return 0;
+	sprd_codec->impd_en = en;
 	sp_asoc_pr_info("%s impd_en %d\n", __func__,
 			sprd_codec->impd_en);
 
-	impd_get_impd_val();
+	/* measure on enable only; switching it off needs no measurement */
+	if (en)
+		impd_get_impd_val();
 
-	return 0;
+	return 1;
 }
 
 static int sprd_delay_time_get(struct snd_kcontrol *kcontrol,
