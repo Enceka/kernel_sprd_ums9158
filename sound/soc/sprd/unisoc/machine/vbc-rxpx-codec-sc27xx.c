@@ -289,7 +289,6 @@ static struct platform_driver vbc_rxpx_codec_sc27xx_driver = {
 	},
 	.probe = vbc_rxpx_codec_sc27xx_probe,
 	.remove = asoc_sprd_card_remove,
-	.shutdown = sprd_asoc_shutdown,
 };
 
 static int __init vbc_rxpx_codec_sc27xx_init(void)

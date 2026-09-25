@@ -1950,17 +1950,6 @@ static int aw87xxx_i2c_remove(struct i2c_client *client)
 #endif
 }
 
-static void aw87xxx_i2c_shutdown(struct i2c_client *client)
-{
-	struct aw87xxx *aw87xxx = i2c_get_clientdata(client);
-
-	AW_DEV_LOGI(&client->dev, "enter");
-
-	/*soft and hw power off*/
-	aw87xxx_update_profile(aw87xxx, aw87xxx->prof_off_name);
-}
-
-
 static const struct i2c_device_id aw87xxx_i2c_id[] = {
 	{AW87XXX_I2C_NAME, 0},
 	{},
@@ -2012,7 +2001,6 @@ static struct i2c_driver aw87xxx_i2c_driver = {
 		},
 	.probe = aw87xxx_i2c_probe,
 	.remove = aw87xxx_i2c_remove,
-	.shutdown = aw87xxx_i2c_shutdown,
 	.id_table = aw87xxx_i2c_id,
 };
 

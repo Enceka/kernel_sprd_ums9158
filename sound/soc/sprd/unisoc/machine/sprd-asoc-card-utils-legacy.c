@@ -566,10 +566,16 @@ EXPORT_SYMBOL(sprd_asoc_board_comm_late_probe);
 
 void sprd_asoc_shutdown(struct platform_device *pdev)
 {
-	struct snd_soc_card *card = platform_get_drvdata(pdev);
+	struct snd_soc_card *card;
+
+	if (!pdev)
+		return;
+
+	card = platform_get_drvdata(pdev);
+	if (!card)
+		return;
 
 	memset(&board.func_switch, 0, sizeof(board.func_switch));
 	board_ext_pin_control(&card->dapm, 0, BOARD_FUNC_MAX);
 }
 EXPORT_SYMBOL(sprd_asoc_shutdown);
-
