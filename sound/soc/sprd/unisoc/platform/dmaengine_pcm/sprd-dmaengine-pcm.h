@@ -47,6 +47,8 @@ struct audio_pm_dma {
 	struct notifier_block pm_nb;
 	/* protect rtd->dma_chn */
 	spinlock_t pm_splk_dma_prot;
+	/* irq flags of the pm_splk_dma_prot holder; only valid under the lock */
+	unsigned long pm_splk_flags;
 	/* protect rtd->dma_chn */
 	struct mutex pm_mtx_dma_prot;
 	/* protect no_pm_cnt */
