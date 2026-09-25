@@ -96,7 +96,12 @@ static int pub_int_handle_thread(void *data)
 
 	set_user_nice(current, -20);
 	while (!kthread_should_stop()) {
-		wait_for_completion(&(sdio_int.pub_int_completion));
+		/*
+		 * e5-linux: idle wait, not a load-average entry; kernel threads
+		 * ignore signals, so it only returns on complete().
+		 */
+		(void)wait_for_completion_interruptible(
+			&(sdio_int.pub_int_completion));
 
 		ret = sprdwcn_bus_aon_readb(sdio_int.pub_int_sts0,
 			&(pub_int_sts0.reg));

@@ -224,12 +224,20 @@ void sdiohal_atomic_sub(int count, atomic_t *value)
 	atomic_sub(count, value);
 }
 
-/* seam for thread */
+/*
+ * seam for thread
+ *
+ * e5-linux: the tx/rx threads spend their whole idle life in these waits.
+ * Uninterruptibly, each one counted as a running task in the load average
+ * (a floor of 6 with the other SIPC/WCN waiters, on a 99 % idle system).
+ * Kernel threads ignore every signal, so the interruptible wait never ends
+ * early and only the accounting changes.
+ */
 void sdiohal_tx_down(void)
 {
 	struct sdiohal_data_t *p_data = sdiohal_get_data();
 
-	wait_for_completion(&p_data->tx_completed);
+	(void)wait_for_completion_interruptible(&p_data->tx_completed);
 }
 
 void sdiohal_tx_up(void)
@@ -243,7 +251,7 @@ void sdiohal_rx_down(void)
 {
 	struct sdiohal_data_t *p_data = sdiohal_get_data();
 
-	wait_for_completion(&p_data->rx_completed);
+	(void)wait_for_completion_interruptible(&p_data->rx_completed);
 }
 
 void sdiohal_rx_up(void)

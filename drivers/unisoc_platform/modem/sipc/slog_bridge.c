@@ -535,7 +535,12 @@ static void slog_bridge_data_move(struct slog_action *sba, int param)
 		while (!(ushort volatile)log_transport) {
 			dev_dbg(sb->dev, "wait log_transport=%d\n",
 				log_transport);
-			msleep(2000);
+			/*
+			 * e5-linux: nothing on Linux sets log_transport (Android's
+			 * log daemon did), so the queue thread polls here for the
+			 * life of the system -- as a sleeping task, not as load.
+			 */
+			msleep_interruptible(2000);
 		}
 
 		kernel_vser_set_pass_mode(true);

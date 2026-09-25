@@ -91,7 +91,12 @@ static int sprd_time_sync_ch_send_thread(void *data)
 	sched_setscheduler(sprd_time_sync_task, SCHED_RR, &param);
 
 	while (!kthread_should_stop()) {
-		set_current_state(TASK_UNINTERRUPTIBLE);
+		/*
+		 * e5-linux: TASK_IDLE, not TASK_UNINTERRUPTIBLE: the thread
+		 * sleeps here from boot to resume and should not count in the
+		 * load average.  wake_up_process() wakes both.
+		 */
+		set_current_state(TASK_IDLE);
 		schedule();
 
 		sprd_send_ap_time();
