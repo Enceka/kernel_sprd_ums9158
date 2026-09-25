@@ -326,6 +326,21 @@ static int sprd_asoc_card_parse_hook(struct device *dev,
 			continue;
 		}
 
+		/*
+		 * The aw87xxx hook drives the amp over i2c (aw87xxx_set_profile)
+		 * and never touches a gpio, and this board's dtb carries no
+		 * "sprd,spk-ext-pa-gpio" at all.  Looking the gpio up first
+		 * failed with -ENOENT and dropped the hook, so the amp was never
+		 * switched out of its "Off" profile when the speaker powered up.
+		 */
+		if (!strcmp(ext_hook_arr[hook_sel].name,
+			    "hook_general_spk_for_aw87xxx")) {
+			hook_spk_priv.gpio[ext_ctrl_type] = -1;
+			pr_info("ext_ctrl_type %d hook_sel %d priv_data %d: aw87xxx over i2c, no gpio\n",
+				ext_ctrl_type, hook_sel, priv_data);
+			continue;
+		}
+
 		ret = of_get_named_gpio_flags(np, prop_pa_gpio, i, NULL);
 		if (ret < 0) {
 			dev_err(dev, "Get gpio failed:%d!\n", ret);
@@ -336,12 +351,6 @@ static int sprd_asoc_card_parse_hook(struct device *dev,
 
 		pr_info("ext_ctrl_type %d hook_sel %d priv_data %d gpio %d",
 			ext_ctrl_type, hook_sel, priv_data, ret);
-		if (!strcmp(ext_hook_arr[hook_sel].name,
-			    "hook_general_spk_for_aw87xxx"))
-		{
-			pr_info("Gpio[%d] will be requested by sipa driver owi,\n",hook_spk_priv.gpio[ext_ctrl_type]);
-			continue;
-		}
 		gpio_flag = GPIOF_DIR_OUT;
 		gpio_flag |= ext_hook_arr[hook_sel].en_level ?
 			GPIOF_INIT_HIGH : GPIOF_INIT_LOW;
