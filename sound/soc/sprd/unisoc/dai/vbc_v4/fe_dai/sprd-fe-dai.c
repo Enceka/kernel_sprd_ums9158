@@ -1044,8 +1044,17 @@ static struct snd_soc_dai_driver sprd_fe_dais[FE_DAI_ID_MAX] = {
 		.playback = {
 			.stream_name = "FE_DAI_FAST_P",
 			.rates = SNDRV_PCM_RATE_CONTINUOUS,
-			.formats = (SNDRV_PCM_FMTBIT_S16_LE |
-						SNDRV_PCM_FMTBIT_S24_LE),
+			/*
+			 * e5-linux: the AGDSP fast-playback scene plays one S24_LE
+			 * (VBC_DAT_L24) stream, but the stream opened after it --
+			 * in either format -- stalls: the DMA fills the MCDT DAC4
+			 * FIFO (1440 bytes) and the DSP never reads from it again,
+			 * so the position sticks and PipeWire, which picked S24,
+			 * went silent from its second stream on.  S16_LE streams
+			 * restart every time, and Android's HAL only ever opens
+			 * this FE S16_LE.
+			 */
+			.formats = SNDRV_PCM_FMTBIT_S16_LE,
 			.channels_min = 1,
 			.channels_max = 2,
 			.rate_min = 8000,
