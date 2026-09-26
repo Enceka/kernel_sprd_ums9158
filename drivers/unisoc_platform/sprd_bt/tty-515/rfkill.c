@@ -24,6 +24,7 @@
 #include <linux/of_gpio.h>
 #include "marlin_platform.h"
 #include "unisoc_bt_log.h"
+#include "rfkill.h"
 
 static struct rfkill *bt_rfk;
 static const char bt_name[] = "bluetooth";
@@ -45,10 +46,13 @@ static int bluetooth_set_power(void *data, bool blocked)
     dev_unisoc_bt_info(ttyBT_dev,
                         "%s: start_block=%d\n",
                         __func__, blocked);
-    if (!blocked)
+    if (!blocked) {
         ret = start_marlin(MARLIN_BLUETOOTH);
-    else
+    } else {
+        /* e5-linux: see mtty_core_disable() */
+        mtty_core_disable();
         ret = stop_marlin(MARLIN_BLUETOOTH);
+    }
 
     dev_unisoc_bt_info(ttyBT_dev,
                         "%s: end_block=%d,ret=%d\n",

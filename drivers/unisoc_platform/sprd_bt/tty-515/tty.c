@@ -1101,6 +1101,41 @@ static int mtty_pcie_open(struct tty_struct *tty, struct file *filp)
     return 0;
 }
 
+/*
+ * e5-linux: tell the BT core it is being switched off, as Android's vendor
+ * HAL does right before it closes this tty: vendor command 0xfca1 00 00 00,
+ * the "core disable" counterpart of the 00 00 01 that enables it.  Only then
+ * does the WCN CP delete its BT thread when stop_marlin() asks (17 ms on
+ * Android).  Without it stop_marlin() waits the full 30 s CP_TIMEROUT for
+ * that thread-delete interrupt with the WCN power lock held, and Wi-Fi's
+ * start_marlin/stop_marlin queue behind it: on a close (btattach exiting, as
+ * at every shutdown) NetworkManager and wpa_supplicant taking wlan0 down sat
+ * unkillable for 21 s; on the "bluetooth" rfkill block systemd-rfkill
+ * restores at boot, wlan0 came up 30 s late.  The HAL has the Command
+ * Complete ~20 ms later; wait a little longer than that.
+ */
+static void mtty_core_disable_tty(struct tty_struct *tty)
+{
+	static const unsigned char core_disable[] = {
+		0x01, 0xa1, 0xfc, 0x03, 0x00, 0x00, 0x00 };
+
+	if (tty->ops && tty->ops->write) {
+		tty->ops->write(tty, core_disable, sizeof(core_disable));
+		msleep(50);
+	}
+}
+
+/* Called by the rfkill switch before it powers BT off under an open tty. */
+void mtty_core_disable(void)
+{
+	if (!mtty_dev || !mtty_dev->tty ||
+	    atomic_read(&mtty_dev->state) != MTTY_STATE_OPEN)
+		return;
+	if (!(marlin_get_power() & BIT(MARLIN_BLUETOOTH)))
+		return;
+	mtty_core_disable_tty(mtty_dev->tty);
+}
+
 //try to a close
 static void mtty_close(struct tty_struct *tty, struct file *filp)
 {
@@ -1128,25 +1163,7 @@ static void mtty_close(struct tty_struct *tty, struct file *filp)
 		return;
 	}
 
-	/*
-	 * e5-linux: tell the BT core it is being switched off, as Android's
-	 * vendor HAL does right before it closes this tty: vendor command
-	 * 0xfca1 00 00 00, the "core disable" counterpart of the 00 00 01 that
-	 * enables it.  Only then does the WCN CP delete its BT thread when
-	 * stop_marlin() asks (17 ms on Android).  Closed without it -- btattach
-	 * exiting, as at every shutdown -- stop_marlin() waited the full 30 s
-	 * CP_TIMEROUT for that thread-delete interrupt with the WCN power lock
-	 * held, and Wi-Fi's stop_marlin queued behind it: NetworkManager and
-	 * wpa_supplicant taking wlan0 down sat unkillable for 21 s.  The HAL
-	 * has the Command Complete ~20 ms later; wait a little longer than that.
-	 */
-	if (tty->ops && tty->ops->write) {
-		static const unsigned char core_disable[] = {
-			0x01, 0xa1, 0xfc, 0x03, 0x00, 0x00, 0x00 };
-
-		tty->ops->write(tty, core_disable, sizeof(core_disable));
-		msleep(50);
-	}
+	mtty_core_disable_tty(tty);
 
 	atomic_set(&mtty->state, MTTY_STATE_CLOSE);
 	sitm_cleanup();
@@ -1523,6 +1540,25 @@ static int mtty_sdio_write_plus(struct tty_struct *tty,
 		dev_unisoc_bt_err(ttyBT_dev,
 							"stty status isn't open, status:%d\n",
 							atomic_read(&mtty->state));
+		return count;
+	}
+
+	/*
+	 * e5-linux: nothing goes to a BT core that is powered off.  The
+	 * "bluetooth" rfkill switch calls stop_marlin(MARLIN_BLUETOOTH) with
+	 * this tty still open: systemd-rfkill restoring a saved "off" at boot,
+	 * or BT switched off in the shell.  bluetoothd keeps driving hci0 all
+	 * the same, and the first command it wrote -- an HCI Reset -- went
+	 * down the SDIO bus Wi-Fi shares to a subsystem that was gone: the
+	 * transfer never completed, sdiohal's tx thread sat on the bus's
+	 * xmit_lock, and four seconds later the Wi-Fi firmware asserted
+	 * (sc2355_assert_cmd reason 3) and wlan0 stayed dead until a reboot,
+	 * hotspot and all.  Dropped here instead: hci0's command times out,
+	 * as it should with BT off.
+	 */
+	if (!(marlin_get_power() & BIT(MARLIN_BLUETOOTH))) {
+		pr_err_ratelimited("mtty: BT is powered off, dropping %zu bytes\n",
+				   (size_t)count);
 		return count;
 	}
 
