@@ -1128,6 +1128,26 @@ static void mtty_close(struct tty_struct *tty, struct file *filp)
 		return;
 	}
 
+	/*
+	 * e5-linux: tell the BT core it is being switched off, as Android's
+	 * vendor HAL does right before it closes this tty: vendor command
+	 * 0xfca1 00 00 00, the "core disable" counterpart of the 00 00 01 that
+	 * enables it.  Only then does the WCN CP delete its BT thread when
+	 * stop_marlin() asks (17 ms on Android).  Closed without it -- btattach
+	 * exiting, as at every shutdown -- stop_marlin() waited the full 30 s
+	 * CP_TIMEROUT for that thread-delete interrupt with the WCN power lock
+	 * held, and Wi-Fi's stop_marlin queued behind it: NetworkManager and
+	 * wpa_supplicant taking wlan0 down sat unkillable for 21 s.  The HAL
+	 * has the Command Complete ~20 ms later; wait a little longer than that.
+	 */
+	if (tty->ops && tty->ops->write) {
+		static const unsigned char core_disable[] = {
+			0x01, 0xa1, 0xfc, 0x03, 0x00, 0x00, 0x00 };
+
+		tty->ops->write(tty, core_disable, sizeof(core_disable));
+		msleep(50);
+	}
+
 	atomic_set(&mtty->state, MTTY_STATE_CLOSE);
 	sitm_cleanup();
 	ret = stop_marlin(MARLIN_BLUETOOTH);
