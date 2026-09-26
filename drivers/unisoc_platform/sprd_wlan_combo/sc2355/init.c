@@ -244,10 +244,17 @@ void sc2355_setup_wiphy(struct wiphy *wiphy, struct sprd_priv *priv)
 	struct ieee80211_sta_ht_cap *ht_info = NULL;
 
 	wiphy->mgmt_stypes = sprd_mgmt_stypes;
+	/*
+	 * e5-linux: station and AP only, no Wi-Fi Direct.  With P2P offered,
+	 * wpa_supplicant -- NetworkManager's, which runs the hotspot -- adds a
+	 * P2P Device next to wlan0, and while that exists the firmware, which
+	 * does the AP's authentication and association itself (AP SME), answers
+	 * no station at all: the AP beacons and nobody can join, open or WPA2,
+	 * 2.4 or 5 GHz.  The same wpa_supplicant AP with p2p_disabled=1, or
+	 * hostapd, lets them straight in.
+	 */
 	wiphy->interface_modes =
-	    BIT(NL80211_IFTYPE_STATION) | BIT(NL80211_IFTYPE_AP) |
-	    BIT(NL80211_IFTYPE_P2P_GO) | BIT(NL80211_IFTYPE_P2P_CLIENT) |
-	    BIT(NL80211_IFTYPE_P2P_DEVICE);
+	    BIT(NL80211_IFTYPE_STATION) | BIT(NL80211_IFTYPE_AP);
 
 	wiphy->features |= NL80211_FEATURE_CELL_BASE_REG_HINTS;
 	wiphy->flags &= ~WIPHY_FLAG_PS_ON_BY_DEFAULT;
@@ -370,16 +377,18 @@ void sc2355_setup_wiphy(struct wiphy *wiphy, struct sprd_priv *priv)
 		}
 	}
 
+	/*
+	 * e5-linux: the combinations exist for P2P next to wlan0; with P2P gone
+	 * one interface at a time is all there is, which is what cfg80211
+	 * allows when no combination is registered (it rejects a one-interface
+	 * combination).
+	 */
 	if (priv->fw_capa & SPRD_CAPA_MCC) {
 		wl_debug("\tMCC supported\n");
-		wiphy->n_iface_combinations = ARRAY_SIZE(sprd_iface_combos);
-		wiphy->iface_combinations = sprd_iface_combos;
 	} else {
 		wl_debug("\tSCC supported\n");
 		wiphy->software_iftypes =
-		    BIT(NL80211_IFTYPE_STATION) | BIT(NL80211_IFTYPE_AP) |
-		    BIT(NL80211_IFTYPE_P2P_CLIENT) |
-		    BIT(NL80211_IFTYPE_P2P_GO) | BIT(NL80211_IFTYPE_P2P_DEVICE);
+		    BIT(NL80211_IFTYPE_STATION) | BIT(NL80211_IFTYPE_AP);
 	}
 
 	if (priv->fw_capa & SPRD_CAPA_ACL) {
