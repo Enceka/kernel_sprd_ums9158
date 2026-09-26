@@ -22,6 +22,16 @@ config UNISOC_SIPC_SPIPE
 
 	  Say M here if you want to build a module.
 
+config UNISOC_SIPC_WWAN
+	tristate "WWAN AT ports on the UNISOC SIPC AT channels"
+	default n
+	depends on UNISOC_SIPC && WWAN
+	help
+	  Registers the rings of the SIPC AT channel ("stty_nr") as WWAN AT
+	  ports, so that ModemManager can drive the modem.
+
+	  Say M here if you want to build a module.
+
 config UNISOC_SIPC_SPOOL
 	tristate "UNISOC pool driver based on SBLOCK"
 	default n
