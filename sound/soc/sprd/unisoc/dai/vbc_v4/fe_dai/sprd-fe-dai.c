@@ -909,7 +909,53 @@ static int fe_hw_free(struct snd_pcm_substream *substream,
 	return 0;
 }
 
+/*
+ * e5-linux: the front ends that mcdt_dma_config_init() puts on an MCDT
+ * channel move the whole stream through one DMA channel into one MCDT FIFO
+ * (sprd_pcm_hw_params() forces ch_cnt = 1 for them), so the buffer must be
+ * interleaved.  The platform still advertises SNDRV_PCM_INFO_NONINTERLEAVED
+ * for every FE -- the AP FEs split left and right over two DMA channels --
+ * and PipeWire, whose native layout is planar, took it: FE_FAST_P opened
+ * S16P played each plane as interleaved frames, an octave high and with a
+ * click per period.
+ */
+static bool fe_dai_uses_mcdt(int id)
+{
+	switch (id) {
+	case FE_DAI_ID_CAPTURE_DSP:
+	case FE_DAI_ID_FM_CAP_DSP:
+	case FE_DAI_ID_BTSCO_CAP_DSP:
+	case FE_DAI_ID_VOICE_CAPTURE:
+	case FE_DAI_ID_LOOP:
+	case FE_DAI_ID_FAST_P:
+	case FE_DAI_ID_HIFI_FAST_P:
+	case FE_DAI_ID_VOIP:
+	case FE_DAI_ID_A2DP_PCM:
+	case FE_DAI_ID_RECOGNISE_CAPTURE:
+	case FE_DAI_ID_VOICE_PCM_P:
+	case FE_DAI_ID_HIFI_P:
+	case FE_DAI_ID_MM_P:
+	case FE_DAI_ID_VAD_CAPTURE_DSP:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static int fe_startup(struct snd_pcm_substream *substream,
+	struct snd_soc_dai *fe_dai)
+{
+	if (!fe_dai_uses_mcdt(fe_dai->id))
+		return 0;
+
+	return snd_pcm_hw_constraint_mask64(substream->runtime,
+		SNDRV_PCM_HW_PARAM_ACCESS,
+		(1ULL << SNDRV_PCM_ACCESS_MMAP_INTERLEAVED) |
+		(1ULL << SNDRV_PCM_ACCESS_RW_INTERLEAVED));
+}
+
 static struct snd_soc_dai_ops sprd_fe_dai_ops = {
+	.startup = fe_startup,
 	.hw_params = fe_hw_params,
 	.hw_free = fe_hw_free,
 };
