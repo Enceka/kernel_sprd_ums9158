@@ -696,6 +696,8 @@ struct sprd_runtime_data {
 	struct snd_pcm_substream *tick_substream;
 	u64 tick_ns;
 	bool ticking;
+	/* see sprd_pcm_pointer(): the position while AGCP is out of reach */
+	snd_pcm_uframes_t last_pointer;
 };
 
 /*
@@ -2099,6 +2101,9 @@ static int sprd_pcm_trigger(struct snd_soc_component *component,
 }
 
 static int debug_pointer_log;
+/* agdsp_pd: 1 when the AP may touch the AGCP domain, read from AON/PMU only */
+extern int agdsp_can_access(void);
+
 static snd_pcm_uframes_t sprd_pcm_pointer(struct snd_soc_component *component,
 				struct snd_pcm_substream *substream)
 {
@@ -2116,6 +2121,25 @@ static snd_pcm_uframes_t sprd_pcm_pointer(struct snd_soc_component *component,
 	if (rtd->interleaved)
 		shift = 0;
 	normal_dma_protect_spin_lock(substream);
+	/*
+	 * e5-linux: the position is the live address register of a DMA
+	 * channel inside the AGCP domain.  Read while the AP has no access to
+	 * that domain it is not an error code but a synchronous external abort
+	 * -- a kernel oops, which panic_on_oops turns into a reboot.  That
+	 * happened after almost six hours of an idle desktop (PipeWire's
+	 * data-loop in snd_pcm_sync_ptr, 2026-09-26) with the stream open, so
+	 * holding the domain's runtime-PM reference is not enough to rule it
+	 * out.  agdsp_can_access() reads only always-on AON/PMU registers
+	 * (the AP access enable, AGCP deep sleep and power state), so it is
+	 * safe to ask first; without access the position simply does not move.
+	 */
+	if (!agdsp_can_access()) {
+		normal_dma_protect_spin_unlock(substream);
+		dev_warn_ratelimited(g_dev,
+			"%s: AGCP not accessible, position held at %lu\n",
+			__func__, (unsigned long)rtd->last_pointer);
+		return rtd->last_pointer;
+	}
 	if (rtd->dma_chn[0]) {
 		now_pointer = sprd_pcm_dma_get_addr(rtd->dma_chn[0],
 					rtd->cookie[0], substream);
@@ -2184,6 +2208,7 @@ static snd_pcm_uframes_t sprd_pcm_pointer(struct snd_soc_component *component,
 		x = 0;
 	if (debug_pointer_log)
 		pr_info("x out:%zx\n", (size_t)x);
+	rtd->last_pointer = x;
 	return x;
 }
 

@@ -159,16 +159,24 @@ int agdsp_can_access(void)
 	int val = 0;
 	struct agdsp_access *dsp_ac = g_agdsp_access;
 
+	/*
+	 * e5-linux: sprd_pcm_pointer() asks this on every position query, so
+	 * a domain that is out of reach must not flood the log, and the
+	 * access state must not be looked up before the probe filled it in.
+	 */
+	if (!dsp_ac || !dsp_ac->agcp_ahb || !dsp_ac->pmu_apb)
+		return 0;
+
 	if (!dsp_ac->auto_agcp_access) {
 		ret = regmap_read(dsp_ac->agcp_ahb,
 			dsp_ac->ap_access_ena_reg, &val);
 		if (ret != 0) {
-			pr_err("%s, regmap_read   AUDACCESS_APB_AGCP_CTRL error!\n",
+			pr_err_ratelimited("%s, regmap_read   AUDACCESS_APB_AGCP_CTRL error!\n",
 			__func__);
 			return 0;
 		}
 		if (!(dsp_ac->ap_access_ena_mask & val)) {
-			pr_err("%s, AUDACCESS_APB_AGCP_ACCESS_EN not enable! value: %x\n",
+			pr_err_ratelimited("%s, AUDACCESS_APB_AGCP_ACCESS_EN not enable! value: %x\n",
 				__func__, val);
 			return 0;
 		}
@@ -176,12 +184,12 @@ int agdsp_can_access(void)
 	ret = regmap_read(dsp_ac->pmu_apb,
 		dsp_ac->audcp_pmu_sleep_ctrl_reg, &val);
 	if (ret != 0) {
-		pr_err("%s, regmap_read   AUDACCESS_APB_AGCP_CTRL error!\n",
+		pr_err_ratelimited("%s, regmap_read   AUDACCESS_APB_AGCP_CTRL error!\n",
 		__func__);
 		return 0;
 	}
 	if (val & dsp_ac->audcp_pmu_sleep_ctrl_deepslp_mask) {
-		pr_err("%s, agdsp AUDACCESS_PMU_APB_AGCP_DEEP_SLEEP !value : %x\n",
+		pr_err_ratelimited("%s, agdsp AUDACCESS_PMU_APB_AGCP_DEEP_SLEEP !value : %x\n",
 		__func__, val);
 		return 0;
 	}
@@ -189,14 +197,14 @@ int agdsp_can_access(void)
 	ret = regmap_read(dsp_ac->pmu_apb,
 		dsp_ac->audcp_pmu_slp_status_reg, &val);
 	if (ret != 0) {
-		pr_err("%s, regmap_read AUDACCESS_REG_SYS_SLP_STATUS!\n",
+		pr_err_ratelimited("%s, regmap_read AUDACCESS_REG_SYS_SLP_STATUS!\n",
 		       __func__);
 		return 0;
 	}
 	if ((val & dsp_ac->audcp_pmu_slp_status_mask) >>
 		((ffs(dsp_ac->audcp_pmu_slp_status_mask)-1)) !=
 		WAKEUP_LOCK_STATE) {
-		pr_err("%s, BIT_PMU_APB_AGCP_SYS_SLP_STATUS not enable! value: %x\n",
+		pr_err_ratelimited("%s, BIT_PMU_APB_AGCP_SYS_SLP_STATUS not enable! value: %x\n",
 		__func__, val);
 		return 0;
 	}
@@ -204,14 +212,14 @@ int agdsp_can_access(void)
 	ret = regmap_read(dsp_ac->pmu_apb,
 		dsp_ac->audcp_pmu_pwr_status4_reg, &val);
 	if (ret != 0) {
-		pr_err("%s, regmap_read AUDACCESS_REG_AGCP_DSP_STATE!\n",
+		pr_err_ratelimited("%s, regmap_read AUDACCESS_REG_AGCP_DSP_STATE!\n",
 		       __func__);
 		return 0;
 	}
 	if (((val & dsp_ac->audcp_pmu_sys_slp_state_mask)
 		>> (ffs(dsp_ac->audcp_pmu_sys_slp_state_mask)-1))
 			!= PD_WAKEUP_STATE) {
-		pr_err("%s, AUDACCESS_BIT_AGCP_DSP_STATE not enable! value: %x\n",
+		pr_err_ratelimited("%s, AUDACCESS_BIT_AGCP_DSP_STATE not enable! value: %x\n",
 		__func__, val);
 		return 0;
 	}
@@ -219,14 +227,14 @@ int agdsp_can_access(void)
 	ret = regmap_read(dsp_ac->pmu_apb,
 		dsp_ac->audcp_pmu_pwr_status3_reg, &val);
 	if (ret != 0) {
-		pr_err("%s, regmap_read   AUDACCESS_REG_AGCP_SYS_STATE!\n",
+		pr_err_ratelimited("%s, regmap_read   AUDACCESS_REG_AGCP_SYS_STATE!\n",
 		       __func__);
 		return 0;
 	}
 	if (((val & dsp_ac->audcp_pmu_slp_state_mask)
 		>> (ffs(dsp_ac->audcp_pmu_slp_state_mask)-1))
 			!= PD_WAKEUP_STATE) {
-		pr_err("%s, AUDACCESS_BIT_AGCP_SYS_STATE not enable! value: %x\n",
+		pr_err_ratelimited("%s, AUDACCESS_BIT_AGCP_SYS_STATE not enable! value: %x\n",
 		__func__, val);
 		return 0;
 	}
