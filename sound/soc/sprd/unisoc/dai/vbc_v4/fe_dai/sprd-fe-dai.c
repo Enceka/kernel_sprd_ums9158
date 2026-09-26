@@ -1021,8 +1021,14 @@ static struct snd_soc_dai_driver sprd_fe_dais[FE_DAI_ID_MAX] = {
 		.capture = {
 			.stream_name = "FE_DAI_CAP_DSP_C",
 			.rates = SNDRV_PCM_RATE_CONTINUOUS,
-			.formats = (SNDRV_PCM_FMTBIT_S16_LE |
-						SNDRV_PCM_FMTBIT_S24_LE),
+			/*
+			 * e5-linux: the AGDSP capture scene writes 16-bit samples
+			 * whatever the hw_params say; opened S24_LE the buffer
+			 * holds two of them per 32-bit word (0xf9530021), which
+			 * is what PipeWire picked and recorded as noise at
+			 * -0.5 dBFS.  Android's HAL only ever opens it S16_LE.
+			 */
+			.formats = SNDRV_PCM_FMTBIT_S16_LE,
 			.channels_min = 1,
 			.channels_max = 2,
 			.rate_min = 8000,
