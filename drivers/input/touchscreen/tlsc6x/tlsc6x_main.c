@@ -1867,6 +1867,14 @@ static int tlsc6x_probe(struct i2c_client *client, const struct i2c_device_id *i
 #endif
 	input_set_abs_params(input_dev, ABS_MT_POSITION_X, 0, pdata->x_res_max, 0, 0);
 	input_set_abs_params(input_dev, ABS_MT_POSITION_Y, 0, pdata->y_res_max, 0, 0);
+	/*
+	 * The single-touch axes too, with the same ranges: without ABS_X and
+	 * ABS_Y a device is not a touchscreen to libudev-zero (OpenWrt has no
+	 * udev), and libinput then ignores it.  The events stay the MT ones;
+	 * libinput reads the slots of a multitouch device.
+	 */
+	input_set_abs_params(input_dev, ABS_X, 0, pdata->x_res_max, 0, 0);
+	input_set_abs_params(input_dev, ABS_Y, 0, pdata->y_res_max, 0, 0);
 	input_set_abs_params(input_dev, ABS_MT_TOUCH_MAJOR, 0, 15, 0, 0);
 	input_set_abs_params(input_dev, ABS_MT_WIDTH_MAJOR, 0, 15, 0, 0);
 #ifdef TLSC_REPORT_PRESSURE_EN
