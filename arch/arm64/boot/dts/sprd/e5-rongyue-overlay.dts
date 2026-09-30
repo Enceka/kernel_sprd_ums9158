@@ -341,3 +341,9 @@ sprd,hsphy-host-eye-pattern = <0x06fbd1c0>;
 status = "okay";
 };
 
+/* the SD slot's card detect: EIC sync line 35, as the device's own FDT has it
+ * (ums9621-1h10-overlay.dts carries the same line) */
+&sdio0 {
+cd-gpios = <&eic_sync 35 GPIO_ACTIVE_HIGH>;
+};
+
