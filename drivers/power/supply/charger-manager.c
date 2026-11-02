@@ -1490,7 +1490,7 @@ static bool is_full_charged(struct charger_manager *cm)
 
 	/* Full, if it's over the fullbatt voltage */
 	if (desc->fullbatt_uV > 0) {
-		ret = get_batt_uV(cm, &uV);
+		ret = get_vbat_now_uV(cm, &uV);
 		if (!ret) {
 			/* Battery is already full, checks voltage drop. */
 			if (cm->battery_status == POWER_SUPPLY_STATUS_FULL
