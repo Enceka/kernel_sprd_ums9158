@@ -20,8 +20,8 @@
 #include "lcd/amoled_g3655fp103ff_visionox_mipi_fhd.dtsi"
 #include "lcd/lcd_td4320_truly_mipi_fhd.dtsi"
 #include "lcd/lcd_dummy_mipi.dtsi"
+#include "lcd/lcd_e5_st73xx_mipi_hdp.dtsi"
 #include "reserved-memory/ums9621-1h10-overlay.dtsi"
-#include "touchscreen/ums9621-spi1-gpio13-14-tp.dtsi"
 #include <dt-bindings/mfd/sprd,ump9620-regs.h>
 #include <dt-bindings/mfd/sprd,ump9620-mask.h>
 #include "wcn/wcn_modules.h"
@@ -273,15 +273,34 @@
 };
 
 &i2c2 {
+	status = "okay";
+
 	charger@6a {
 		compatible = "awinic,aw322xx_chg";
 		reg = <0x6a>;
 		aw322xx,r_sns = <0x21>;
 		monitored-battery = <&bat>;
+		extcon = <&extcon_gpio>;
+		phys = <&hsphy>;
 
-		otg-vbus {
+		vddvbus: otg-vbus {
 			regulator-name = "vddvbus";
 		};
+	};
+};
+
+&i2c3 {
+	status = "okay";
+
+	tlsc6x@2e {
+		compatible = "tlsc6x,tlsc6x_ts";
+		reg = <0x2e>;
+		tlsc6x,reset-gpio = <&ap_gpio 14 GPIO_ACTIVE_HIGH>;
+		tlsc6x,irq-gpio = <&ap_gpio 13 GPIO_ACTIVE_HIGH>;
+		have-virtualkey = <0>;
+		virtualkeys = <400 1010 60 40 240 1010 60 40 80 1010 60 40>;
+		TP_MAX_X = <320>;
+		TP_MAX_Y = <480>;
 	};
 };
 
@@ -331,13 +350,44 @@ status = "disable";
 &pmic_typec {
 status = "okay";
 use_pdhub_c2c;
-extcon = <&hsphy>;
+extcon = <&extcon_gpio>;
 };
 
 &hsphy {
+vdd-supply = <&vddusb33>;
 extcon = <&pmic_typec>;
 sprd,hsphy-device-eye-pattern = <0x067bd1c0>;
 sprd,hsphy-host-eye-pattern = <0x06fbd1c0>;
 status = "okay";
 };
 
+&usb {
+	extcon = <&pmic_typec>, <&pmic_typec>;
+	vbus-supply = <&vddvbus>;
+	usb31pllv_frc_on = <&pmu_apb_regs 0xa58 0x1>;
+	status = "okay";
+};
+
+/* E5 physical keypad, from the working stock FDT. */
+&aon {
+	e5_keypad: keypad@1b0000 {
+		compatible = "sprd,sc9860-keypad";
+		reg = <0x1b0000 0x1000>;
+		interrupts = <GIC_SPI 28 IRQ_TYPE_LEVEL_HIGH>;
+		clock-names = "enable", "rtc";
+		clocks = <&aonapb_gate CLK_KPD_EB>,
+			 <&aonapb_gate CLK_KPD_RTC_EB>;
+		keypad,num-rows = <4>;
+		keypad,num-columns = <7>;
+		debounce-interval = <5>;
+		linux,keymap = <
+			0x0000009e 0x00010004 0x00020007 0x0003000a
+			0x0004020b 0x00060067 0x01000161 0x0102006c
+			0x01030003 0x01040006 0x01050009 0x0106000b
+			0x0300008b 0x030100a9 0x03030002 0x03040005
+			0x03050008 0x03060037 0x01010069 0x0005006a
+		>;
+		wakeup-source;
+		status = "okay";
+	};
+};
