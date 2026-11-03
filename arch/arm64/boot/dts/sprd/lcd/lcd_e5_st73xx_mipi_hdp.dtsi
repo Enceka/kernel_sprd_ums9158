@@ -1,0 +1,91 @@
+/* E5 panel parameters reconstructed from stock DTBO, board ID 0x1800. */
+/ {
+	fragment {
+		target-path = "/";
+		__overlay__ {
+			lcds {
+				lcd_st7365p_mipi_hdp {
+					sprd,sleep-out-command = [13 78 00 01 11 13 32 00 01 29];
+					sprd,sleep-in-command = [13 0a 00 01 28 13 78 00 01 10];
+					sprd,initial-command = [05 78 00 01 11 15 00 00 02 36 48 15 00 00 02 3a 77 15 00 00 02 f0 c3 15 00 00 02 f0 96 15 00 00 02 b0 80 39 00 00 03 b1 80 10 15 00 00 02 b4 02 39 00 00 05 b5 1f 50 00 20 39 00 00 04 b6 20 02 3b 15 00 00 02 b7 c6 39 00 00 03 c0 c0 25 15 00 00 02 c1 09 15 00 00 02 c2 a7 15 00 00 02 c5 19 39 00 00 09 e8 40 8a 1b 1b 23 0a ac 33 39 00 00 0f e0 d2 05 08 06 05 02 2a 44 46 39 15 15 2d 32 39 00 00 0f e1 96 08 0c 09 09 25 2e 43 42 35 11 11 28 2e 15 00 00 02 f0 3c 15 00 00 02 f0 69 05 78 00 01 21 05 78 00 01 29];
+					sprd,reset-off-sequence = <0x00 0x14>;
+					sprd,reset-on-sequence = <0x01 0x32 0x00 0x32 0x01 0x32 0x00 0x32 0x01 0x78>;
+					sprd,hporch-lp-disable = <0x00>;
+					sprd,video-lp-cmd-enable = <0x00>;
+					sprd,dpi-clk-div = <0x00>;
+					sprd,dpi-clk-pixelpll;
+					sprd,esd-check-value = <0x9c>;
+					sprd,esd-check-register = <0x0a>;
+					sprd,esd-check-period = <0x3e8>;
+					sprd,esd-check-mode = <0x00>;
+					sprd,esd-check-enable = <0x01>;
+					sprd,pwm-scale-enable_new;
+					sprd,height-mm = <0x4a>;
+					sprd,width-mm = <0x31>;
+					sprd,phy-escape-clock = <0x4e20>;
+					sprd,phy-bit-clock = <0x704e0>;
+					sprd,dsi-color-format = "rgb888";
+					sprd,dsi-lane-number = <0x01>;
+					sprd,dsi-work-mode = <0x01>;
+
+					display-timings {
+						native-mode = <&e5_st7365p_timing0>;
+
+						e5_st7365p_timing0: timing0 {
+							vsync-len = <0x08>;
+							hsync-len = <0x14>;
+							vfront-porch = <0x0a>;
+							vback-porch = <0x0a>;
+							hfront-porch = <0x5f>;
+							hback-porch = <0x5f>;
+							vactive = <0x1e0>;
+							hactive = <0x140>;
+							clock-frequency = <0xf42400>;
+						};
+					};
+				};
+
+				lcd_st7796s_mipi_hdp {
+					sprd,sleep-out-command = [13 78 00 01 11 13 32 00 01 29];
+					sprd,sleep-in-command = [13 0a 00 01 28 13 78 00 01 10];
+					sprd,initial-command = [39 78 00 01 11 39 00 00 02 36 48 39 00 00 02 3a 77 39 00 00 02 f0 c3 39 00 00 02 f0 96 39 00 00 02 b4 01 39 00 00 02 b7 c6 39 00 00 03 b9 02 e0 39 00 00 03 c0 80 45 39 00 00 02 c1 0f 39 00 00 02 c2 a7 39 00 00 02 c5 12 39 00 00 09 e8 40 8a 00 00 29 19 a5 33 39 00 00 0f e0 f0 04 00 17 0d 07 32 54 48 37 14 15 2c 33 39 00 00 0f e1 f0 13 00 1f 16 1b 31 43 47 38 12 12 2a 31 39 00 00 02 f0 3c 39 ff 00 02 f0 69 39 00 00 01 21 39 78 00 01 29];
+					sprd,reset-off-sequence = <0x00 0x14>;
+					sprd,reset-on-sequence = <0x01 0x0a 0x00 0xc8 0x01 0xc8>;
+					sprd,hporch-lp-disable = <0x00>;
+					sprd,video-lp-cmd-enable = <0x00>;
+					sprd,dpi-clk-div = <0x00>;
+					sprd,dpi-clk-pixelpll;
+					sprd,esd-check-value = <0x9c>;
+					sprd,esd-check-register = <0x0a>;
+					sprd,esd-check-period = <0x3e8>;
+					sprd,esd-check-mode = <0x00>;
+					sprd,esd-check-enable = <0x01>;
+					sprd,height-mm = <0x4a>;
+					sprd,width-mm = <0x31>;
+					sprd,pwm-scale-enable;
+					sprd,phy-escape-clock = <0x4e20>;
+					sprd,phy-bit-clock = <0x48828>;
+					sprd,dsi-color-format = "rgb888";
+					sprd,dsi-lane-number = <0x01>;
+					sprd,dsi-work-mode = <0x01>;
+
+					display-timings {
+						native-mode = <&e5_st7796s_timing0>;
+
+						e5_st7796s_timing0: timing0 {
+							vsync-len = <0x04>;
+							hsync-len = <0x0a>;
+							vfront-porch = <0x08>;
+							vback-porch = <0x0a>;
+							hfront-porch = <0x0e>;
+							hback-porch = <0x14>;
+							vactive = <0x1e0>;
+							hactive = <0x140>;
+							clock-frequency = <0xa7d8c0>;
+						};
+					};
+				};
+			};
+		};
+	};
+};
