@@ -969,3 +969,12 @@ CONFIG_TRUSTY_VIRTIO_IPC=y
 
 # --- e5: required by the level 7 VINTF kernel requirements; the stock kernel has it too ---
 CONFIG_SHADOW_CALL_STACK=y
+
+# --- e5 bringup: on-screen kernel console (fbcon) so early boot hangs are visible
+# on the panel without a UART cable. Pair with "console=tty0" in BOARD_KERNEL_CMDLINE
+# (device/rongyue/e5/BoardConfig.mk); keep ttyS1 last so /dev/console stays serial. ---
+CONFIG_VT=y
+CONFIG_VT_CONSOLE=y
+CONFIG_FB=y
+CONFIG_FRAMEBUFFER_CONSOLE=y
+CONFIG_DRM_FBDEV_EMULATION=y
