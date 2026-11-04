@@ -237,12 +237,6 @@
 &cm {
 	extcon = <&pmic_typec>;
 	phys = <&hsphy>;
-	use-typec-extcon;
-	pd-extcon-enable;
-	sprd,support-pd-pps;
-	sprd,support-fchg;
-	sprd,pd-fixed-max-microwatt = <0x112a880>;
-	cm-flash-charge-voltage-drop = <0xf4240>;
 	cm-keep-awake;
 	cm-capacity-track;
 	monitored-battery = <&bat>;
