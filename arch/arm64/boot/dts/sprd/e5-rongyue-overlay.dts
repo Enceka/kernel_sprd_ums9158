@@ -362,6 +362,31 @@ status = "okay";
 	status = "okay";
 };
 
+/* Preserve the stock board power constraints during late regulator cleanup. */
+&vdd28 {
+	regulator-always-on;
+};
+
+&vddldo1 {
+	regulator-always-on;
+};
+
+&avdd18 {
+	regulator-always-on;
+};
+
+&avdd12 {
+	regulator-always-on;
+};
+
+&vddai {
+	regulator-always-on;
+};
+
+&vddmodem {
+	regulator-always-on;
+};
+
 /* E5 physical keypad, from the working stock FDT. */
 &aon {
 	e5_keypad: keypad@1b0000 {
