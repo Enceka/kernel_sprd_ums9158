@@ -387,6 +387,88 @@ status = "okay";
 	regulator-always-on;
 };
 
+/*
+ * The other half of the stock regulator recipe, ported fragment-for-fragment
+ * from the stock E5 DTBO: ten unused rails are disabled there. Carrying only
+ * the always-on half (or neither) left the regulator state machine diverged
+ * from stock, which showed up as the ~32 s recovery blackout (unused-rail
+ * cleanup cutting live rails) and as a system-boot watchdog loop.
+ */
+&vddwpa {
+	status = "disabled";
+};
+
+&vddldo0 {
+	status = "disabled";
+};
+
+&vddrf18 {
+	status = "disabled";
+};
+
+&vddrf1v1 {
+	status = "disabled";
+};
+
+&vddrf0v9 {
+	status = "disabled";
+};
+
+&vddldo4 {
+	status = "disabled";
+};
+
+&vddmm {
+	status = "disabled";
+};
+
+&vddsim0 {
+	status = "disabled";
+};
+
+&vddsim1 {
+	status = "disabled";
+};
+
+&vddgpu {
+	status = "disabled";
+};
+
+/* Stock keeps the PMIC PD controller off on this board (charging goes
+ * through the type-C/extcon path) and describes the USB-C connector. */
+&pmic_pd {
+	status = "disable";
+	vbus-supply = <&vddvbus>;
+	use-pdhub-c2c;
+	sprd,syscon-aon-apb = <&aon_apb_regs>;
+
+	connector {
+		compatible = "usb-c-connector";
+		label = "USB-C";
+		power-role = "dual";
+		try-power-role = "sink";
+		source-pdos = <0x26019028>;
+		sink-pdos = <0x401912c 0xc0dc213c>;
+		op-sink-microwatt = <0x989680>;
+	};
+};
+
+/* Stock ADC channel map for the PMIC ADI bus (charger detection reads). */
+&adi_bus {
+	sprd,hw-channels = <
+		0x2 0x20cc 0x9 0x2074 0xb 0x2054 0xd 0xa054
+		0xf 0xa180 0x11 0xa1a0 0x13 0x244c 0x15 0xa0e8
+		0x17 0x2044 0x19 0xa074 0x1b 0xa044 0x1e 0x2020
+		0x20 0x217c 0x21 0x2188 0x22 0x21b8 0x23 0x21ac>;
+};
+
+/* Stock DDR DFS scene table. */
+&ddr_dfs {
+	sprd-scene = "boost", "lcd-high", "lcdon", "lcdoff", "camlow",
+		     "camhigh", "camveryhigh", "faceid", "top", "boot-opt";
+	sprd-freq = <1244 1244 1244 384 1536 1536 1866 1244 2133 1866>;
+};
+
 /* E5 physical keypad, from the working stock FDT. */
 &aon {
 	e5_keypad: keypad@1b0000 {
