@@ -8690,11 +8690,6 @@ static int charger_manager_probe(struct platform_device *pdev)
 
 	mutex_init(&cm->desc->keep_awake_mtx);
 
-	/* Add to the list */
-	mutex_lock(&cm_list_mtx);
-	list_add(&cm->entry, &cm_list);
-	mutex_unlock(&cm_list_mtx);
-
 	/*
 	 * Charger-manager is capable of waking up the system from sleep
 	 * when event is happened through cm_notify_event()
@@ -8736,8 +8731,13 @@ static int charger_manager_probe(struct platform_device *pdev)
 	    cm->vchg_info->ops->init(cm->vchg_info, cm->charger_psy)) {
 		dev_err(&pdev->dev, "Failed to register vchg detect notify\n");
 		ret = -EPROBE_DEFER;
-		goto err;
+		goto err_fchg;
 	}
+
+	/* Publish only after all fallible initialization has completed. */
+	mutex_lock(&cm_list_mtx);
+	list_add(&cm->entry, &cm_list);
+	mutex_unlock(&cm_list_mtx);
 
 	if (is_ext_usb_pwr_online(cm) && cm->fchg_info->ops && cm->fchg_info->ops->fchg_detect)
 		cm->fchg_info->ops->fchg_detect(cm->fchg_info);
@@ -8764,9 +8764,12 @@ static int charger_manager_probe(struct platform_device *pdev)
 
 	return 0;
 
+err_fchg:
+	if (cm->fchg_info->ops && cm->fchg_info->ops->remove)
+		cm->fchg_info->ops->remove(cm->fchg_info);
 err:
-
-	wakeup_source_remove(cm->charge_ws);
+	wakeup_source_unregister(cm->cp_ws);
+	wakeup_source_unregister(cm->charge_ws);
 
 	return ret;
 }
