@@ -6,16 +6,14 @@ This directory documents the rebuilt kernel artifacts for the Rongyue E5
 **2026-09-09**: device-side forensics found zero evidence the rebuilt kernel
 completed a boot that day (all archived ylog sessions were stock 5.15.119),
 plus a new UART-free log-capture path and two capacity risks (vendor_boot AVB
-footer headroom, boot.img kernel-region headroom). See
-`diagnostics_2026-09-09.md` before trusting the "fixed" framing in the
-vendor_boot section below - it documents attempts, not a confirmed fix.
+footer headroom, boot.img kernel-region headroom). The vendor_boot section
+below documents attempts, not a confirmed fix.
 
 **2026-09-12**: systematic driver-gap pass against the newly cloned vendor
 trees - 130 stock modules cross-checked against what this tree can build and
 against what actually binds hardware on the device; 24 modules imported (audio
-stack + VPU).  See `driver_gap_2026-09-12.md`, which also records what is
-confirmed to have no source anywhere (aw322xx_charger, the camera group) and
-why sprd-jpg cannot be imported.
+stack + VPU). The detailed driver-gap investigation remains available in Git
+history.
 
 **2026-09-13**: the `adb offline` report is traced to the gadget DMA path
 (`musb_ep_restart()` never called `channel_program()`), see the 03:35 re-cut
@@ -28,8 +26,7 @@ below.
   cross-checked against ulas-android-14 (5.15.178) and
   android_kernel_zte_ums9620_mifi_u30air (5.4.254 UMS9620 SDK)
 - Device evidence: kernel_probe/ (config.gz, kallsyms.txt, btf-vmlinux, fdt.dtb,
-  modules.txt, dmesg/pstore).  Re-dumped 2026-09-12 together with stock-img/;
-  see stock_img_2026-09-12.md for the measurements and for the checksum files.
+  modules.txt, dmesg/pstore). Re-dumped 2026-09-12 together with stock-img/.
 
 ## Build & repack flow
 
@@ -231,8 +228,7 @@ stock - so 47, the newest, is a stock boot, not a failed attempt of ours.
   MZ/PE magic).  Measured on the 2026-09-12 dump: boot_a/b carry kernel_size
   0x2C96A00 and a 360,840-byte LZ4 ramdisk holding Magisk markers
   (overlay.d/.backup) - i.e. what is flashed is a Magisk-patched boot whose
-  kernel is still the stock 5.15.119, *not* a ramdisk_size=0 image (see
-  stock_img_2026-09-12.md).
+  kernel is still the stock 5.15.119, *not* a ramdisk_size=0 image.
 - boot.img carries NO device tree (no FDT magic in the 64 MB image); the
   bootloader loads the DT from the device's own dtbo partition - dtb_a/b are an
   all-zero 8 MB partition, so dtbo is the only candidate (vendor_boot does
