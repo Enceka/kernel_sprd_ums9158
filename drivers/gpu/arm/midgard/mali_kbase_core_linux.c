@@ -3638,6 +3638,39 @@ static ssize_t reset_timeout_show(struct device *dev,
 
 static DEVICE_ATTR_RW(reset_timeout);
 
+static ssize_t gpu_memory_show(struct device *dev,
+			       struct device_attribute *attr, char *buf)
+{
+	struct kbase_device *kbdev = to_kbase_device(dev);
+	struct kbase_context *context;
+	unsigned int context_index = 0;
+	ssize_t length;
+	char record[96];
+	int record_length;
+
+	if (!kbdev)
+		return -ENODEV;
+
+	length = sysfs_emit(buf, "%s %u\n", kbdev->devname,
+			    atomic_read(&kbdev->memdev.used_pages));
+	mutex_lock(&kbdev->kctx_list_lock);
+	list_for_each_entry(context, &kbdev->kctx_list, kctx_list_link) {
+		record_length = scnprintf(record, sizeof(record),
+					  "kctx-%u %u [pid:%d,tid:%d]\n", context_index++,
+					  atomic_read(&context->used_pages), context->pid,
+					  context->tgid);
+		if (length + record_length >= PAGE_SIZE) {
+			length = -EOVERFLOW;
+			break;
+		}
+		length += sysfs_emit_at(buf, length, "%s", record);
+	}
+	mutex_unlock(&kbdev->kctx_list_lock);
+	return length;
+}
+
+static DEVICE_ATTR_RO(gpu_memory);
+
 static ssize_t mem_pool_size_show(struct device *dev,
 		struct device_attribute *attr, char * const buf)
 {
@@ -5562,6 +5595,7 @@ static struct attribute *kbase_attrs[] = {
 	&dev_attr_fault_keyword.attr,
 #endif
 	&dev_attr_core_mask.attr,
+	&dev_attr_gpu_memory.attr,
 	&dev_attr_mem_pool_size.attr,
 	&dev_attr_mem_pool_max_size.attr,
 	&dev_attr_lp_mem_pool_size.attr,
