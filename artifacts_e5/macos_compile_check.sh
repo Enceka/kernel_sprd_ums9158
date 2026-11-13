@@ -80,14 +80,14 @@ HOSTFLAGS="-I$SHIM"
 # Scratch .config
 # ---------------------------------------------------------------------------
 if [ ! -f "$O/.config" ]; then
-	make ARCH=arm64 LLVM=1 LLVM_IAS=1 O="$O" e5_rongyue_defconfig
+	make ARCH=arm64 LLVM=1 LLVM_IAS=1 O="$O" sprd_qogirn6l_defconfig
 	./scripts/config --file "$O/.config" \
 		-d HEADERS_INSTALL -d DEBUG_INFO_BTF -d STACK_VALIDATION
 	make ARCH=arm64 LLVM=1 LLVM_IAS=1 O="$O" olddefconfig
 fi
 
 # clang 22+ is far newer than the kernel's clang14 reference build; same waivers
-# build_e5.sh uses, plus -ferror-limit=0 so a bad file reports everything at once.
+# build_sprd.sh uses, plus -ferror-limit=0 so a bad file reports everything at once.
 KC="-ferror-limit=0 -Wno-frame-larger-than -Wno-deprecated-declarations"
 KC="$KC -Wno-constant-conversion -Wno-uninitialized-const-pointer -Wno-unused-function"
 

@@ -31,8 +31,8 @@ below.
 ## Build & repack flow
 
 ```sh
-./build_e5.sh              # Image + modules + e5-rongyue-overlay.dtbo + ums9621-base.dtb
-./make_e5_dtb.sh           # merge base+overlay -> e5-rongyue.dtb
+./build_sprd.sh            # Image + modules + qogirn6l-1800-overlay.dtbo + ums9621-base.dtb
+./make_sprd_dtb.sh         # merge base+overlay -> qogirn6l-1800.dtb
 ./stage_vendor_modules.sh  # collect .ko -> vendor_modules_e5/  (.gitignore'd)
 BASE=stock-img/boot_a.img ./repack_boot_e5.sh
                            # swap kernel into boot image -> boot-e5.img

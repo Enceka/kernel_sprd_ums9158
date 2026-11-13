@@ -9,7 +9,7 @@
 # object list below is the vendor Kbuild's unconditional default
 # (common + sc2332 + sc2355, SDIO/SIPC/PCIE transports all built in) -
 # this board only wires up sc2355 over SDIO (sprd,sc2355-sdio-wifi in
-# e5-rongyue-overlay.dts), but stock ships one universal binary
+# qogirn6l-1800-overlay.dts), but stock ships one universal binary
 # across chip generations rather than trimming per board, so this
 # keeps that shape instead of guessing at what else is safe to drop.
 #
