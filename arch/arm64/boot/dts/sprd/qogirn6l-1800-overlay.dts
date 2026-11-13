@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: (Licenseref-Unisoc-General-1.0 OR GPL-2.0-only)
 /*
- * e5-rongyue-overlay.dts - Rongyue E5 customer overlay (Unisoc UMS9621)
+ * qogirn6l-1800-overlay.dts - UMS9621 board ID 0x1800 overlay
  *
- * Reconstructed from the device live FDT (kernel_probe/e5.dts) using
+ * Reconstructed from the device live FDT using
  * motorola-sprd-andriod-14-release-uoa34 ums9621-1h10-overlay.dts as the
  * board template. Base: ums9621-base.dtb (model/compatible/sc-id match the
  * device exactly). Values in hex are taken verbatim from the device FDT.
@@ -20,7 +20,7 @@
 #include "lcd/amoled_g3655fp103ff_visionox_mipi_fhd.dtsi"
 #include "lcd/lcd_td4320_truly_mipi_fhd.dtsi"
 #include "lcd/lcd_dummy_mipi.dtsi"
-#include "lcd/lcd_e5_st73xx_mipi_hdp.dtsi"
+#include "lcd/lcd_sprd_st73xx_mipi_hdp.dtsi"
 #include "reserved-memory/ums9621-1h10-overlay.dtsi"
 #include <dt-bindings/mfd/sprd,ump9620-regs.h>
 #include <dt-bindings/mfd/sprd,ump9620-mask.h>
@@ -30,7 +30,7 @@
 
 /* NOTE: bat2/bat3/virtual_typec/pa5g-sensor/pdbg remain from the base;
  * the device build removed them, but /delete-node/ cannot reference base
- * labels from a /plugin/ overlay at compile time. They are unused on E5. */
+ * labels from a /plugin/ overlay at compile time. They are unused on this board. */
 / {
 	fragment {
 		target-path = "/";
@@ -389,7 +389,7 @@ status = "okay";
 
 /*
  * The other half of the stock regulator recipe, ported fragment-for-fragment
- * from the stock E5 DTBO: ten unused rails are disabled there. Carrying only
+ * from the stock DTBO: ten unused rails are disabled there. Carrying only
  * the always-on half (or neither) left the regulator state machine diverged
  * from stock, which showed up as the ~32 s recovery blackout (unused-rail
  * cleanup cutting live rails) and as a system-boot watchdog loop.
@@ -469,9 +469,9 @@ status = "okay";
 	sprd-freq = <1244 1244 1244 384 1536 1536 1866 1244 2133 1866>;
 };
 
-/* E5 physical keypad, from the working stock FDT. */
+/* Physical keypad, from the working stock FDT. */
 &aon {
-	e5_keypad: keypad@1b0000 {
+	sprd_keypad: keypad@1b0000 {
 		compatible = "sprd,sc9860-keypad";
 		reg = <0x1b0000 0x1000>;
 		interrupts = <GIC_SPI 28 IRQ_TYPE_LEVEL_HIGH>;
@@ -493,7 +493,7 @@ status = "okay";
 	};
 };
 
-/* Camera wiring from the E5 stock DTBO (fragments 31 and 32). */
+/* Camera wiring from the stock DTBO (fragments 31 and 32). */
 &i2c0 {
 	status = "okay";
 	clock-frequency = <400000>;

@@ -1,4 +1,4 @@
-/* E5 panel parameters reconstructed from stock DTBO, board ID 0x1800. */
+/* SPRD panel parameters reconstructed from stock DTBO, board ID 0x1800. */
 / {
 	fragment {
 		target-path = "/";
@@ -29,9 +29,9 @@
 					sprd,dsi-work-mode = <0x01>;
 
 					display-timings {
-						native-mode = <&e5_st7365p_timing0>;
+						native-mode = <&sprd_st7365p_timing0>;
 
-						e5_st7365p_timing0: timing0 {
+						sprd_st7365p_timing0: timing0 {
 							vsync-len = <0x08>;
 							hsync-len = <0x14>;
 							vfront-porch = <0x0a>;
@@ -70,9 +70,9 @@
 					sprd,dsi-work-mode = <0x01>;
 
 					display-timings {
-						native-mode = <&e5_st7796s_timing0>;
+						native-mode = <&sprd_st7796s_timing0>;
 
-						e5_st7796s_timing0: timing0 {
+						sprd_st7796s_timing0: timing0 {
 							vsync-len = <0x04>;
 							hsync-len = <0x0a>;
 							vfront-porch = <0x08>;
