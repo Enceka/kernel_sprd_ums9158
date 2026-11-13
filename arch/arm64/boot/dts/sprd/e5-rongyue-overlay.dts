@@ -492,3 +492,46 @@ status = "okay";
 		status = "okay";
 	};
 };
+
+/* Camera wiring from the E5 stock DTBO (fragments 31 and 32). */
+&i2c0 {
+	status = "okay";
+	clock-frequency = <400000>;
+	sensor_main: sensor-main@20 {
+		compatible = "sprd,sensor-main";
+		reg = <0x20>;
+		clock-names = "clk_src", "sensor_eb", "clk_96m", "clk_64m", "clk_51m2", "clk_48m", "clk_26m";
+		clocks = <&mm_clk CLK_SENSOR0>, <&mm_gate CLK_SENSOR0_EN>,
+			<&g5l_pll CLK_TGPLL_96M>, <&g5l_pll CLK_TGPLL_64M>,
+			<&g5l_pll CLK_TGPLL_51M2>, <&g5l_pll CLK_TGPLL_48M>, <&ext_26m>;
+		vddio-supply = <&vddcamio>;
+		vddcama-supply = <&vddcama0>;
+		vddcamd-supply = <&vddcamd0>;
+		vddcammot-supply = <&vddcammot0>;
+		reset-gpios = <&ap_gpio 39 GPIO_ACTIVE_HIGH>;
+		power-down-gpios = <&ap_gpio 45 GPIO_ACTIVE_HIGH>;
+		sprd,phyid = <4>;
+		csi = <&csi1>;
+		power-domains = <&mm_domain>;
+	};
+};
+&i2c1 {
+	status = "okay";
+	clock-frequency = <400000>;
+	sensor_sub: sensor-sub@5a {
+		compatible = "sprd,sensor-sub";
+		reg = <0x5a>;
+		clock-names = "clk_src", "sensor_eb", "clk_96m", "clk_64m", "clk_51m2", "clk_48m", "clk_26m";
+		clocks = <&mm_clk CLK_SENSOR2>, <&mm_gate CLK_SENSOR2_EN>,
+			<&g5l_pll CLK_TGPLL_96M>, <&g5l_pll CLK_TGPLL_64M>,
+			<&g5l_pll CLK_TGPLL_51M2>, <&g5l_pll CLK_TGPLL_48M>, <&ext_26m>;
+		vddio-supply = <&vddcamio>;
+		vddcama-supply = <&vddcama1>;
+		vddcamd-supply = <&vddcamd1>;
+		reset-gpios = <&ap_gpio 40 GPIO_ACTIVE_HIGH>;
+		power-down-gpios = <&ap_gpio 46 GPIO_ACTIVE_HIGH>;
+		sprd,phyid = <3>;
+		csi = <&csi1>;
+		power-domains = <&mm_domain>;
+	};
+};
