@@ -645,3 +645,6 @@ config VIDEO_RCAR_DRIF
 	  will be called rcar_drif.
 
 endif # SDR_PLATFORM_DRIVERS
+
+source "drivers/media/platform/sprd/camera/Kconfig"
+source "drivers/media/platform/sprd/jpeg/Kconfig"

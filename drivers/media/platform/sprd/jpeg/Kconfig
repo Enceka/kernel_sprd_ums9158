@@ -1,0 +1,5 @@
+config VIDEO_SPRD_QOGIRN6L_JPEG
+	tristate "SPRD Qogirn6L JPEG codec"
+	depends on ARCH_SPRD && PM && UNISOC_IOMMU
+	help
+	  Hardware JPEG encoding and decoding for the stock Qogirn6L camera HAL.

@@ -969,3 +969,6 @@ CONFIG_TRUSTY_VIRTIO_IPC=y
 
 # --- e5: required by the level 7 VINTF kernel requirements; the stock kernel has it too ---
 CONFIG_SHADOW_CALL_STACK=y
+
+CONFIG_VIDEO_SPRD_QOGIRN6L_CAMERA=m
+CONFIG_VIDEO_SPRD_QOGIRN6L_JPEG=m

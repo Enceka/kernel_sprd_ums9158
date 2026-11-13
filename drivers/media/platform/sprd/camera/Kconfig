@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: GPL-2.0-only
+config VIDEO_SPRD_QOGIRN6L_CAMERA
+	tristate "SPRD Qogirn6L camera"
+	depends on ARCH_SPRD && I2C && PM
+	help
+	  Sensor, CSI, DCAM/ISP, camera power, DVFS and flash support for
+	  the stock Qogirn6L camera HAL. Build as modules.
