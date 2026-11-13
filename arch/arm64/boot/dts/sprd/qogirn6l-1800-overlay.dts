@@ -299,11 +299,92 @@
 };
 
 &i2c6 {
+	aw87xxx_pa@58 {
+		compatible = "awinic,aw87xxx_pa";
+		reg = <0x58>;
+		dev_index = <0>;
+		status = "okay";
+	};
+
 	flash-ic@63 {
 		compatible = "sprd,flash-aw3641";
 		reg = <0x63>;
 		flash-en-gpios = <&ap_gpio 187 0>;
 		flash-torch-en-gpios = <&ap_gpio 188 0>;
+	};
+};
+
+/* This board uses the I2C AW87xxx hook, not the reference-board codecs. */
+&ucp1301_spk {
+	status = "disabled";
+};
+
+&pdm_dmic {
+	status = "disabled";
+};
+
+/* The analog Type-C mux is GPIO controlled; low selects USB D+/D-. */
+&sprd_headset {
+	typec-i2c = <0>;
+	mic-gpios = <&ap_gpio 195 GPIO_ACTIVE_HIGH>;
+	lr-gpios = <&ap_gpio 186 GPIO_ACTIVE_HIGH>;
+	switch-supply = <&vdd28>;
+	sprd,switch-voltage = <3300000>;
+};
+
+/* The shipped DSP firmware uses the 0xaf700000/0xafa00000 DDR layout. */
+&audio_reserved {
+	reg = <0x0 0xaf700000 0x0 0x00300000>;
+};
+
+&audiodsp_reserved {
+	reg = <0x0 0xafa00000 0x0 0x00600000>;
+};
+
+&{/audio-mem-mgr} {
+	sprd,ddr32-dma = <0xaf700000 0x200000>;
+	sprd,ddr32-dspmemdump = <0xaf900000 0x80000>;
+	sprd,cmdaddr = <0xaf980000 0x400>;
+	sprd,smsg-addr = <0xaf980400 0xa10>;
+	sprd,shmaddr-aud-str = <0xaf980e10 0x400>;
+	sprd,shmaddr-dsp-vbc = <0xaf981210 0x1000>;
+	sprd,shmaddr-nxp = <0xaf982210 0x800>;
+	sprd,shmaddr-dsp-smartpa = <0xaf982a10 0x1000>;
+	sprd,shmaddr-reg-dump = <0xaf983a10 0x400>;
+};
+
+&{/audiocp_boot} {
+	dsp-reboot-mode = <0>;
+	sysshutdown = <&pmu_apb_regs 0x3d0 0x02000000>;
+	coreshutdown = <&pmu_apb_regs 0x3d4 0x02000000>;
+};
+
+&sound_vbc_v4_sprd_codec {
+	sprd,spk-ext-pa-info = <0 1 1 0>;
+	sprd-audio-card,routing =
+		"HPMIC Pin", "HP Mic Jack",
+		"MIC Pin", "Mic Jack",
+		"MIC2 Pin", "Aux Mic Jack",
+		"HeadPhone Jack", "HP Pin",
+		"Ext Spk", "HP Pin",
+		"Ext Spk1", "HP Pin",
+		"Ext Spk", "SPK Pin",
+		"Ext Spk1", "SPK Pin",
+		"Ext Ear", "EAR Pin",
+		"Ext Ear", "SPK Pin",
+		"Ext Ear", "HP Pin";
+
+	sprd-audio-card,dai-link@53 {
+		status = "disabled";
+	};
+	sprd-audio-card,dai-link@81 {
+		status = "disabled";
+	};
+	sprd-audio-card,dai-link@108 {
+		status = "disabled";
+	};
+	sprd-audio-card,dai-link@109 {
+		status = "disabled";
 	};
 };
 

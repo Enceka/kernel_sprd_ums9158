@@ -3632,7 +3632,7 @@ static int sprd_headset_parse_dt(struct sprd_headset *hdst)
 	pdata->support_typec_hdst = true;
 
 	ret = of_property_read_u32(np, "typec-i2c", &typec_i2c_val);
-	if (!ret) {
+	if (!ret && typec_i2c_val) {
 		hdst->typec_i2c_en = typec_i2c_val;
 		pr_info("%s use typec_i2c switch\n", __func__);
 		return 0;

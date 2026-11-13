@@ -732,7 +732,7 @@ static int asoc_sprd_card_parse_of(struct device_node *node,
 		struct device_node *np = NULL;
 		int i = 0;
 
-		for_each_child_of_node(node, np) {
+		for_each_available_child_of_node(node, np) {
 			dev_dbg(dev, "\tlink %d:\n", i);
 			ret = asoc_sprd_card_dai_link_of(np, priv, i, false);
 			if (ret < 0) {
@@ -813,7 +813,7 @@ int asoc_sprd_card_probe(struct platform_device *pdev,
 	 arch_audio_set_agcp_ahb_gpr(agcp_ahb_gpr);
 	/* Get the number of DAI links */
 	if (np && of_get_child_by_name(np, "sprd-audio-card,dai-link"))
-		num_links = of_get_child_count(np);
+		num_links = of_get_available_child_count(np);
 	else
 		num_links = 1;
 
