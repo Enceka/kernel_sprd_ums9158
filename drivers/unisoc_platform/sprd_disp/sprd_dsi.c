@@ -119,6 +119,36 @@ static void dphy_hs_clk_enable_for_umb9230s(struct sprd_dsi *dsi)
 	sprd_dphy_hs_clk_en(dsi->phy, true);
 }
 
+static void sprd_dsi_enable_panel_dithering(struct sprd_panel *panel)
+{
+	static const u8 commands[][2] = {
+		{ 0xf0, 0xc3 }, { 0xf0, 0x96 }, { 0xb9, 0x02 },
+		{ 0xf0, 0x3c }, { 0xf0, 0x69 },
+	};
+	ssize_t ret = 0;
+	size_t command_index;
+
+	if (!panel->info.of_node ||
+	    !of_node_name_eq(panel->info.of_node, "lcd_st7365p_mipi_hdp") ||
+	    panel->info.format != MIPI_DSI_FMT_RGB888)
+		return;
+
+	mutex_lock(&panel->lock);
+	if (panel->enabled) {
+		for (command_index = 0; command_index < ARRAY_SIZE(commands);
+		     command_index++) {
+			if (ret < 0 && command_index < 3)
+				continue;
+			ret = mipi_dsi_generic_write(panel->slave,
+						     commands[command_index],
+						     sizeof(commands[command_index]));
+			if (ret < 0)
+				DRM_ERROR("ST7365P dithering failed: %zd\n", ret);
+		}
+	}
+	mutex_unlock(&panel->lock);
+}
+
 static void sprd_dsi_encoder_enable(struct drm_encoder *encoder)
 {
 	struct sprd_dsi *dsi = encoder_to_dsi(encoder);
@@ -151,6 +181,7 @@ static void sprd_dsi_encoder_enable(struct drm_encoder *encoder)
 			}
 		}
 
+		sprd_dsi_enable_panel_dithering(panel);
 		mutex_unlock(&dsi->lock);
 		return;
 	}
@@ -179,6 +210,7 @@ static void sprd_dsi_encoder_enable(struct drm_encoder *encoder)
 		} else {
 			drm_panel_prepare(dsi->panel);
 			drm_panel_enable(dsi->panel);
+			sprd_dsi_enable_panel_dithering(panel);
 			if (dsi->ctx.dpms == DRM_MODE_DPMS_STANDBY) {
 				DRM_INFO("%s(panel enter doze)\n", __func__);
 				sprd_panel_enter_doze(dsi->panel);
