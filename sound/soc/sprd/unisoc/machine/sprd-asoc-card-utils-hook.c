@@ -312,6 +312,10 @@ static int sprd_asoc_card_parse_hook(struct device *dev,
 		priv_data = buf[CELL_PRIV + num];
 		hook_spk_priv.priv_data[ext_ctrl_type] = priv_data;
 
+		/* The I2C amplifier owns its controls and needs no speaker GPIO. */
+		if (ext_hook_arr[hook_sel].hook == hook_general_spk_for_aw87xxx)
+			continue;
+
 		/* Process the shared gpio */
 		share_gpio = buf[CELL_SHARE_GPIO + num];
 		if (share_gpio > 0) {
@@ -336,12 +340,6 @@ static int sprd_asoc_card_parse_hook(struct device *dev,
 
 		pr_info("ext_ctrl_type %d hook_sel %d priv_data %d gpio %d",
 			ext_ctrl_type, hook_sel, priv_data, ret);
-		if (!strcmp(ext_hook_arr[hook_sel].name,
-			    "hook_general_spk_for_aw87xxx"))
-		{
-			pr_info("Gpio[%d] will be requested by sipa driver owi,\n",hook_spk_priv.gpio[ext_ctrl_type]);
-			continue;
-		}
 		gpio_flag = GPIOF_DIR_OUT;
 		gpio_flag |= ext_hook_arr[hook_sel].en_level ?
 			GPIOF_INIT_HIGH : GPIOF_INIT_LOW;
