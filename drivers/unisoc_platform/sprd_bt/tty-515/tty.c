@@ -14,6 +14,7 @@
 
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
 #include <linux/types.h>
@@ -202,6 +203,54 @@ static ssize_t dumpmem_store(struct device *dev,
     is_dumped = true;
     return 0;
 }
+static int mtty_get_xpe_id(void)
+{
+	static DEFINE_MUTEX(efuse_lock);
+	static int cached_id = -1;
+	static const struct {
+		u32 address;
+		u32 mask;
+	} clocks[] = {
+		{ 0x4083c32c, BIT(22) },
+		{ 0x4083c024, BIT(11) },
+		{ 0x4083c050, BIT(18) },
+		{ 0x40858040, BIT(0) },
+	};
+	struct sprdwcn_bus_ops *bus_ops = get_wcn_bus_ops();
+	u32 value;
+	int index, result;
+
+	mutex_lock(&efuse_lock);
+	if (cached_id >= 0) {
+		result = cached_id;
+		goto unlock;
+	}
+	if (!bus_ops || !bus_ops->read_l || !bus_ops->write_l) {
+		result = -ENODEV;
+		goto unlock;
+	}
+	for (index = 0; index < ARRAY_SIZE(clocks); index++) {
+		result = sprdwcn_bus_reg_read(clocks[index].address, &value, sizeof(value));
+		if (result < 0)
+			goto unlock;
+		if (!(value & clocks[index].mask)) {
+			value |= clocks[index].mask;
+			result = sprdwcn_bus_reg_write(clocks[index].address, &value,
+						 sizeof(value));
+			if (result < 0)
+				goto unlock;
+		}
+	}
+	result = sprdwcn_bus_reg_read(0x40859030, &value, sizeof(value));
+	if (result < 0)
+		goto unlock;
+	cached_id = ((value >> 29) & 3) == 1;
+	result = cached_id;
+unlock:
+	mutex_unlock(&efuse_lock);
+	return result;
+}
+
 static ssize_t chipid_show(struct device *dev,
        struct device_attribute *attr, char *buf)
 {
@@ -227,18 +276,22 @@ static ssize_t chipid_show(struct device *dev,
 							"%s: buf: %s, i = %d",
 							__func__, buf, i);
 	} else {
+		int xpe_id;
+
 		id = wcn_get_chip_type();
 		id_str = wcn_get_chip_name();
 		dev_unisoc_bt_info(ttyBT_dev,
 						"%s: chipid: %d, chipid_str: %s",
 						__func__, id, id_str);
 
-		i = scnprintf(buf, PAGE_SIZE, "%d/", id);
-		dev_unisoc_bt_info(ttyBT_dev,
-						"%s: buf: %s, i = %d",
-						__func__, buf, i);
-		strcat(buf, id_str);
-		i += scnprintf(buf + i, PAGE_SIZE - i, "%s", buf + i);
+		if (id_str && !strncmp(id_str, "Marlin3Lite_", 12)) {
+			xpe_id = mtty_get_xpe_id();
+			if (xpe_id < 0)
+				return xpe_id;
+			i = scnprintf(buf, PAGE_SIZE, "%d/%s/%d", id, id_str, xpe_id);
+		} else {
+			i = scnprintf(buf, PAGE_SIZE, "%d/%s", id, id_str ?: "UNKNOWN");
+		}
 		dev_unisoc_bt_info(ttyBT_dev,
 						"%s: buf: %s, i = %d",
 						__func__, buf, i);
