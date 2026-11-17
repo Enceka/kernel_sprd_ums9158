@@ -1,0 +1,17 @@
+Unisoc UMP9620 audio codec board configuration
+
+The analog codec node has compatible "unisoc,ump9620-audio-codec".
+
+Optional property:
+
+- sprd,dac-dc-offset: unsigned integer from 0 to 127. Sets the DC offset
+  of both DAC channels in AUD_CFGA_ANA_ET1 whenever the digital codec is
+  powered up. Boards that need the offset for direct earpiece playback
+  can initialize it without first activating a speaker or headphone path.
+  When absent, the existing output path initialization is used.
+
+Example:
+
+&sprd_audio_codec_ana {
+	sprd,dac-dc-offset = <6>;
+};

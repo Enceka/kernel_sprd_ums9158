@@ -314,6 +314,8 @@ struct sprd_codec_priv {
 	bool rcv_pop_ramp;
 	u32 sdm_l;
 	u32 sdm_h;
+	u32 dac_dc_offset;
+	bool dac_dc_offset_valid;
 	struct regmap *aon_top_apb;
 	struct regmap *audcp_aon_apb;/* baseaddr: 0x56390000 */
 	struct regmap *aon_apb_rf;/* 0x64900000 */
@@ -1787,6 +1789,9 @@ static int sprd_codec_digital_open(struct snd_soc_component *codec)
 			    0x3303);
 	snd_soc_component_update_bits(codec, SOC_REG(AUD_DNS_SW), BIT(RG_DNS_SW), 0);
 #endif
+
+	if (sprd_codec->dac_dc_offset_valid)
+		sprd_codec_audif_dc_os_set(codec, sprd_codec->dac_dc_offset);
 
 	return ret;
 }
@@ -5678,6 +5683,18 @@ static int sprd_codec_dt_parse_mach(struct platform_device *pdev)
 		 sprd_codec->fixed_sample_rate[CODEC_PATH_DA],
 		 sprd_codec->fixed_sample_rate[CODEC_PATH_AD],
 		 sprd_codec->fixed_sample_rate[CODEC_PATH_AD1]);
+
+	if (of_find_property(np, "sprd,dac-dc-offset", NULL)) {
+		ret = of_property_read_u32(np, "sprd,dac-dc-offset",
+					&sprd_codec->dac_dc_offset);
+		if (ret)
+			return ret;
+		if (sprd_codec->dac_dc_offset > 0x7f) {
+			dev_err(&pdev->dev, "DAC DC offset exceeds 7 bits\n");
+			return -EINVAL;
+		}
+		sprd_codec->dac_dc_offset_valid = true;
+	}
 
 	return 0;
 }

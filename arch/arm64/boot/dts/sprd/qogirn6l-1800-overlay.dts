@@ -359,6 +359,10 @@
 	coreshutdown = <&pmu_apb_regs 0x3d4 0x02000000>;
 };
 
+&sprd_audio_codec_ana {
+	sprd,dac-dc-offset = <6>;
+};
+
 &sound_vbc_v4_sprd_codec {
 	sprd,spk-ext-pa-info = <0 1 1 0>;
 	sprd-audio-card,routing =
