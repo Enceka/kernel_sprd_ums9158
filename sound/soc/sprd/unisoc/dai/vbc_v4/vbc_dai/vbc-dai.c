@@ -2505,11 +2505,6 @@ static const char * const vbc_iis_width_txt[IIS_WD_MAX] = {
 	[WD_24BIT] = TO_STRING(WD_24BIT),
 };
 
-static const char * const vbc_mst_iis_width_txt[MST_IIS_WD_MAX] = {
-	[MST_WD_24BIT] = TO_STRING(MST_WD_24BIT),
-	[MST_WD_16BIT] = TO_STRING(MST_WD_16BIT),
-};
-
 static const struct soc_enum vbc_iis_tx_wd_enum[VBC_MUX_IIS_TX_ID_MAX] = {
 	SPRD_VBC_ENUM(VBC_MUX_IIS_TX_DAC0, IIS_WD_MAX, vbc_iis_width_txt),
 	SPRD_VBC_ENUM(VBC_MUX_IIS_TX_DAC1, IIS_WD_MAX, vbc_iis_width_txt),
@@ -3001,7 +2996,7 @@ static int vbc_put_iis_master_en(struct snd_kcontrol *kcontrol,
 }
 
 static const struct soc_enum vbc_iis_master_wd_width_enum =
-	SPRD_VBC_ENUM(SND_SOC_NOPM, 2, vbc_mst_iis_width_txt);
+	SPRD_VBC_ENUM(SND_SOC_NOPM, IIS_WD_MAX, vbc_iis_width_txt);
 
 static int vbc_get_iis_master_width(struct snd_kcontrol *kcontrol,
 				    struct snd_ctl_elem_value *ucontrol)
@@ -3031,12 +3026,7 @@ static int vbc_put_iis_master_width(struct snd_kcontrol *kcontrol,
 	sp_asoc_pr_dbg("set iis master wd width to %s\n", texts->texts[value]);
 
 	vbc_codec->iis_mst_width = value;
-	// kernel :0 for 24bit; 1 for 16bit
-	// dsp/vbc :0 for 16bit; 1 for 26bit
-	if(vbc_codec->iis_mst_width == 0)
-		dsp_vbc_iis_master_width_set(1);
-	else
-		dsp_vbc_iis_master_width_set(0);
+	dsp_vbc_iis_master_width_set(value);
 
 	return 0;
 }
