@@ -59,8 +59,9 @@
 #define DAC_CAL_DONE_TIMEOUT	(500 * 8)
 #define DAC_CAL_POLL_DELAY_US	500
 
-#define RCV_DVLD_DONE_TIMEOUT	(500 * 8)
-#define RCV_DVLD_POLL_DELAY_US	500
+/* DAC feed-in can remain invalid for over 100 ms after receiver enable. */
+#define RCV_DVLD_DONE_TIMEOUT_US	200000
+#define RCV_DVLD_POLL_DELAY_US	2000
 
 int impd_delay_set = 60;
 
@@ -868,8 +869,7 @@ static int sprd_mixer_put(struct snd_kcontrol *kcontrol,
 
 static int sprd_codec_reg_read_poll_timeout(struct snd_soc_component *codec,
 					    unsigned int addr,
-					    unsigned int check1,
-					    unsigned int check2,
+					    unsigned int mask,
 					    unsigned int sleep_us,
 					    unsigned int timeout_us)
 {
@@ -883,17 +883,16 @@ static int sprd_codec_reg_read_poll_timeout(struct snd_soc_component *codec,
 		if (val < 0)
 			break;
 
-		cond = ((val & check1) && (val & check2));
+		cond = (val & mask) == mask;
 		if (cond)
 			break;
 
 		if (timeout_us && ktime_compare(ktime_get(), timeout) > 0) {
 			val = snd_soc_component_read(codec, addr);
 			if (val >= 0)
-				cond = ((val & check1) && (val & check2));
-			sp_asoc_pr_info("%s val %d 0x%x, check1 0x%x, check2 0x%x, cond 0x%x\n",
-					__func__, val, val, check1, check2,
-					cond);
+				cond = (val & mask) == mask;
+			sp_asoc_pr_info("%s val 0x%x, mask 0x%x, cond %u\n",
+					__func__, val, mask, cond);
 			break;
 		}
 		if (sleep_us)
@@ -1071,40 +1070,24 @@ static int sdaaor_ao_event(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
-static int fdin_dvld_check_event(struct snd_soc_dapm_widget *w, int event)
+static void sprd_codec_rcv_disable(struct snd_soc_dapm_widget *w)
 {
 	struct snd_soc_component *codec = snd_soc_dapm_to_component(w->dapm);
-	struct sprd_codec_priv *sprd_codec = snd_soc_component_get_drvdata(codec);
-	int on = !!SND_SOC_DAPM_EVENT_ON(event);
 	u32 state;
-	int i = 0, j;
+	int i;
 
-	while (i++ < 10) {
+	for (i = 0; i < 10; i++) {
 		sprd_codec_wait(10);
 		state = snd_soc_component_read(codec, SOC_REG(ANA_STS1)) &
 			RCV_DAC_FDIN_DVLD;
-		if ((on && state) || (!on && !state))
+		if (!state)
 			break;
 	}
 
-	/* check further, do something in PMD? */
-	if (sprd_codec->rcv_pop_ramp && on) {
-		for (j = 4; j >= 0; j--) {
-			snd_soc_component_update_bits(codec, SOC_REG(ANA_CDC8),
-					    RCV_G(0xf), RCV_G(j));
-			usleep_range(100, 110);
-		}
-	}
-
-	sp_asoc_pr_info("%s on %d\n", __func__, on);
-	if (!on)
-		snd_soc_component_update_bits(codec, SOC_REG(ANA_CDC10), RCV_EN, 0);
-
-	sp_asoc_pr_info("'%s' %s, check %s i %d\n", w->name,
-			get_event_name(event),
-			(i >= 10) ? "failed" : "sucessful", i);
-
-	return 0;
+	if (i == 10)
+		sp_asoc_pr_info("'%s' DAC feed-in did not settle on power-down\n",
+				w->name);
+	snd_soc_component_update_bits(codec, SOC_REG(ANA_CDC10), RCV_EN, 0);
 }
 
 static int dahpl_chn_en(struct snd_soc_component *codec, bool on_off)
@@ -1138,7 +1121,8 @@ static int sdaaol_rcv_event(struct snd_soc_dapm_widget *w,
 
 	sp_asoc_pr_info("'%s' %s\n", w->name, get_event_name(event));
 	update_switch(codec, SDAAOL_RCV, on);
-	fdin_dvld_check_event(w, event);
+	if (!on)
+		sprd_codec_rcv_disable(w);
 
 	return 0;
 }
@@ -1151,7 +1135,8 @@ static int sdahpl_rcv_event(struct snd_soc_dapm_widget *w,
 
 	sp_asoc_pr_info("'%s' %s\n", w->name, get_event_name(event));
 	update_switch(codec, SDAHPL_RCV, on);
-	fdin_dvld_check_event(w, event);
+	if (!on)
+		sprd_codec_rcv_disable(w);
 
 	return 0;
 }
@@ -1305,7 +1290,7 @@ static int daaol_en_event(struct snd_soc_dapm_widget *w,
 		if (need_check_cali) {
 			ret = sprd_codec_reg_read_poll_timeout(codec,
 				SOC_REG(ANA_CDC7),
-				DAAOL_VRPBUF_CAL_DONE,
+				DAAOL_VRPBUF_CAL_DONE |
 				DAAOL_VRNBUF_CAL_DONE,
 				DAC_CAL_POLL_DELAY_US,
 				DAC_CAL_DONE_TIMEOUT);
@@ -1377,7 +1362,7 @@ static int daaor_en_event(struct snd_soc_dapm_widget *w,
 		if (need_check_cali) {
 			ret = sprd_codec_reg_read_poll_timeout(codec,
 					SOC_REG(ANA_CDC7),
-					DAAOR_VRPBUF_CAL_DONE,
+					DAAOR_VRPBUF_CAL_DONE |
 					DAAOR_VRNBUF_CAL_DONE,
 					DAC_CAL_POLL_DELAY_US,
 					DAC_CAL_DONE_TIMEOUT);
@@ -1503,7 +1488,7 @@ static int dahpl_en_event(struct snd_soc_dapm_widget *w,
 		if (need_check_cali) {
 			ret = sprd_codec_reg_read_poll_timeout(codec,
 					SOC_REG(ANA_CDC7),
-					DAHPL_VRPBUF_CAL_DONE,
+					DAHPL_VRPBUF_CAL_DONE |
 					DAHPL_VRNBUF_CAL_DONE,
 					DAC_CAL_POLL_DELAY_US,
 					DAC_CAL_DONE_TIMEOUT);
@@ -1575,7 +1560,7 @@ static int dahpr_en_event(struct snd_soc_dapm_widget *w,
 		if (need_check_cali) {
 			ret = sprd_codec_reg_read_poll_timeout(codec,
 					SOC_REG(ANA_CDC7),
-					DAHPR_VRPBUF_CAL_DONE,
+					DAHPR_VRPBUF_CAL_DONE |
 					DAHPR_VRNBUF_CAL_DONE,
 					DAC_CAL_POLL_DELAY_US,
 					DAC_CAL_DONE_TIMEOUT);
@@ -2069,7 +2054,7 @@ static int ear_switch_event(struct snd_soc_dapm_widget *w,
 {
 	struct snd_soc_component *codec = snd_soc_dapm_to_component(w->dapm);
 	struct sprd_codec_priv *sprd_codec = snd_soc_component_get_drvdata(codec);
-	int ret = 0;
+	int gain, ret = 0;
 
 	sp_asoc_pr_info("'%s' %s\n", w->name, get_event_name(event));
 
@@ -2077,20 +2062,28 @@ static int ear_switch_event(struct snd_soc_dapm_widget *w,
 	case SND_SOC_DAPM_PRE_PMU:
 		snd_soc_component_update_bits(codec, SOC_REG(ANA_CDC13), RCV_CUR, 0);
 		snd_soc_component_update_bits(codec, SOC_REG(ANA_CDC10), RCV_EN, RCV_EN);
+		/* Calibration and DAC feed-in settle only after RCV_EN is set. */
 		ret = sprd_codec_reg_read_poll_timeout(codec, SOC_REG(ANA_STS1),
-						       RCV_DCCAL_DVLD,
-						       RCV_LOOP_DVLD,
+						       RCV_DCCAL_DVLD |
+						       RCV_LOOP_DVLD |
+						       RCV_DAC_FDIN_DVLD,
 						       RCV_DVLD_POLL_DELAY_US,
-						       RCV_DVLD_DONE_TIMEOUT);
-		if (ret)
+						       RCV_DVLD_DONE_TIMEOUT_US);
+		if (ret) {
 			pr_err("%s check rcv dvld failed, %d\n",
 			       __func__, ret);
+			break;
+		}
 
-		if (sprd_codec->rcv_pop_ramp)
+		if (sprd_codec->rcv_pop_ramp) {
+			for (gain = 4; gain >= 0; gain--) {
+				snd_soc_component_update_bits(codec, SOC_REG(ANA_CDC8),
+							      RCV_G(0xf), RCV_G(gain));
+				usleep_range(100, 110);
+			}
 			snd_soc_component_update_bits(codec, SOC_REG(ANA_CDC8),
-					    RCV_G(0xf),
-					    RCV_G(0x5));
-		/* check further, need to do something in PMD? */
+						      RCV_G(0xf), RCV_G(5));
+		}
 		break;
 	case SND_SOC_DAPM_PRE_PMD:
 	case SND_SOC_DAPM_POST_PMD:
