@@ -311,6 +311,14 @@ config ARM_STI_CPUFREQ
 	  this config option if you wish to add CPUFreq support for STi based
 	  SoCs.
 
+config ARM_SPRD_CPUFREQ_V2
+	tristate "Unisoc CPUFreq v2 support"
+	depends on ARCH_SPRD && OF && NVMEM && SPRD_SIP_FW
+	select PM_OPP
+	help
+	  Enable CPU frequency scaling on Unisoc platforms that use the
+	  secure firmware DVFS interface and the sprd,cpufreq-v2 device node.
+
 config ARM_TEGRA20_CPUFREQ
 	tristate "Tegra20/30 CPUFreq support"
 	depends on ARCH_TEGRA && CPUFREQ_DT
