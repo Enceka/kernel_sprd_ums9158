@@ -131,11 +131,7 @@
 #define AW32257_DISABLE_PIN_MASK_2721                  BIT(15)
 #define AW32257_DISABLE_PIN_MASK_2720                  BIT(0)
 #define AW32257_DISABLE_PIN_MASK_2730                  BIT(0)
-
-#define CONFIG_CHARGE_PD   1
-#ifdef CONFIG_CHARGE_PD
-int chg_pd_gpio;
-#endif
+#define AW32257_DISABLE_PIN_MASK_962X                  BIT(0)
 
 #define AW32257_WAKE_UP_MS                 2000
 enum aw32257_command {
@@ -245,6 +241,8 @@ struct aw32257_device {
 	struct power_supply_desc charger_desc;
 	struct delayed_work otg_work;
 	struct work_struct work;
+	struct notifier_block chg_pd_notifier;
+	int chg_pd_gpio;
 	struct mutex lock;
 	struct regmap *pmic;
 	enum aw32257_mode reported_mode;
@@ -261,28 +259,23 @@ struct aw32257_device {
 
 static DEFINE_MUTEX(aw32257_i2c_mutex);
 
-#ifdef CONFIG_CHARGE_PD
 static int chg_pd_notify(struct notifier_block *this, unsigned long code,
 			 void *unused)
 {
+	struct aw32257_device *bq = container_of(this, struct aw32257_device,
+					      chg_pd_notifier);
+
 	switch (code) {
 	case SYS_DOWN:
 	case SYS_HALT:
 	case SYS_POWER_OFF:
-		gpio_set_value(chg_pd_gpio, 0);
+		gpio_set_value_cansleep(bq->chg_pd_gpio, 0);
 		break;
 	default:
 		break;
 	}
 	return NOTIFY_DONE;
 }
-
-static struct notifier_block chg_pd_notifier = {
-	chg_pd_notify,
-	NULL,
-	0
-};
-#endif
 
 /* read value from register */
 static int aw32257_i2c_read(struct aw32257_device *bq, u8 reg)
@@ -310,6 +303,8 @@ static int aw32257_i2c_read(struct aw32257_device *bq, u8 reg)
 
 	if (ret < 0)
 		return ret;
+	if (ret != ARRAY_SIZE(msg))
+		return -EIO;
 
 	return val;
 }
@@ -1175,27 +1170,40 @@ static bool aw32257_charger_is_bat_present(struct aw32257_device *info)
 
 static int aw32257_charger_start_charge(struct aw32257_device *info)
 {
-	int ret;
+	int ret, rollback_ret;
 
 	ret = regmap_update_bits(info->pmic, info->charger_pd,
 				 info->charger_pd_mask, 0);
-	if (ret)
+	if (ret) {
 		dev_err(info->dev, "enable charge failed\n");
+		return ret;
+	}
 
 	dev_dbg(info->dev, "bq start charge\n");
 
-#ifdef CONFIG_CHARGE_PD
-	gpio_set_value(chg_pd_gpio, 0);
-#else
-	aw32257_exec_command(info, AW32257_CHARGER_ENABLE);
-#endif
+	if (gpio_is_valid(info->chg_pd_gpio)) {
+		gpio_set_value_cansleep(info->chg_pd_gpio, 0);
+		return 0;
+	}
+
+	ret = aw32257_i2c_write_mask(info, AW32257_REG_CONTROL, 0,
+				     GENMASK(AW32257_BIT_CE, AW32257_BIT_OPA_MODE), 0);
+	if (ret) {
+		/* Try to close the PMIC gate if enabling the AW fails. */
+		rollback_ret = regmap_update_bits(info->pmic, info->charger_pd,
+						  info->charger_pd_mask,
+						  info->charger_pd_mask);
+		if (rollback_ret)
+			dev_err(info->dev, "restore charger gate failed (%d)\n",
+				rollback_ret);
+	}
 
 	return ret;
 }
 
-static void aw32257_charger_stop_charge(struct aw32257_device *info)
+static int aw32257_charger_stop_charge(struct aw32257_device *info)
 {
-	int ret;
+	int ret, aw_ret = 0;
 
 	ret = regmap_update_bits(info->pmic, info->charger_pd,
 				 info->charger_pd_mask,
@@ -1204,11 +1212,37 @@ static void aw32257_charger_stop_charge(struct aw32257_device *info)
 		dev_err(info->dev, "disable charge failed\n");
 
 	dev_dbg(info->dev, "bq stop charge\n");
-#ifdef CONFIG_CHARGE_PD
-	gpio_set_value(chg_pd_gpio, 1);
-#else
-	aw32257_exec_command(info, AW32257_CHARGER_DISABLE);
-#endif
+	if (gpio_is_valid(info->chg_pd_gpio))
+		gpio_set_value_cansleep(info->chg_pd_gpio, 1);
+	else
+		aw_ret = aw32257_exec_command(info, AW32257_CHARGER_DISABLE);
+
+	return ret ? ret : aw_ret;
+}
+
+static int aw32257_charger_get_enabled(struct aw32257_device *info)
+{
+	u32 value;
+	int ret;
+
+	if (info->charger_pd_mask) {
+		ret = regmap_read(info->pmic, info->charger_pd, &value);
+		if (ret)
+			return ret;
+		if (value & info->charger_pd_mask)
+			return 0;
+	}
+
+	if (gpio_is_valid(info->chg_pd_gpio)) {
+		ret = gpio_get_value_cansleep(info->chg_pd_gpio);
+		return ret < 0 ? ret : !ret;
+	}
+
+	ret = aw32257_i2c_read(info, AW32257_REG_CONTROL);
+	if (ret < 0)
+		return ret;
+
+	return !(ret & GENMASK(AW32257_BIT_CE, AW32257_BIT_OPA_MODE));
 }
 
 static void aw32257_charger_work(struct work_struct *data)
@@ -1266,20 +1300,22 @@ static int aw32257_charger_get_status(struct aw32257_device *info)
 static int aw32257_charger_set_status(struct aw32257_device *info,
 				      int val)
 {
-	int ret = 0;
+	int ret, enabled;
 
-	if (!val && info->charging) {
-		aw32257_charger_stop_charge(info);
-		info->charging = false;
-	} else if (val && !info->charging) {
+	if (val)
 		ret = aw32257_charger_start_charge(info);
-		if (ret)
-			dev_err(info->dev, "start charge failed\n");
-		else
-			info->charging = true;
-	}
+	else
+		ret = aw32257_charger_stop_charge(info);
 
-	return ret;
+	/* Reconcile partial writes and allow a later request to retry both gates. */
+	enabled = aw32257_charger_get_enabled(info);
+	info->charging = enabled > 0;
+	if (ret)
+		return ret;
+	if (enabled < 0)
+		return enabled;
+
+	return info->charging == !!val ? 0 : -EIO;
 }
 int aw32257_charger_get_battery_cur(struct power_supply *psy,
 				    struct aw32257_charge_current *cur)
@@ -1417,6 +1453,7 @@ static enum power_supply_property aw32257_power_supply_props[] = {
 	POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE,
 	POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE_MAX,
 	POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT,
+	POWER_SUPPLY_PROP_CALIBRATE,
 	POWER_SUPPLY_PROP_SCOPE,
 	POWER_SUPPLY_PROP_MODEL_NAME,
 	POWER_SUPPLY_PROP_MANUFACTURER,
@@ -1441,6 +1478,8 @@ static int aw32257_property_is_writeable(struct power_supply *psy,
 	switch (psp) {
 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE_MAX:
 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT:
+	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
+	case POWER_SUPPLY_PROP_CALIBRATE:
 	case POWER_SUPPLY_PROP_STATUS:
 			ret = 1;
 			break;
@@ -1459,12 +1498,19 @@ static int aw32257_power_supply_set_property(struct power_supply *psy,
 
 	int ret = 0;
 
+	mutex_lock(&bq->lock);
 	switch (psp) {
 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT:
 		ret = aw32257_set_charge_current(bq, val->intval);
 		if (ret < 0)
 			dev_err(bq->dev, "set charge current failed\n");
 		break;
+	case POWER_SUPPLY_PROP_CALIBRATE:
+		if (val->intval != 0 && val->intval != 1) {
+			ret = -EINVAL;
+			break;
+		}
+		fallthrough;
 	case POWER_SUPPLY_PROP_STATUS:
 		ret = aw32257_charger_set_status(bq, val->intval);
 		if (ret < 0)
@@ -1475,9 +1521,13 @@ static int aw32257_power_supply_set_property(struct power_supply *psy,
 		if (ret < 0)
 			dev_err(bq->dev, "set regulation voltage failed\n");
 		break;
+	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
+		/* The stock driver accepts IBUS votes without programming a limit. */
+		break;
 	default:
-		return -EINVAL;
+		ret = -EINVAL;
 	}
+	mutex_unlock(&bq->lock);
 
 	return ret;
 }
@@ -1490,7 +1540,15 @@ static int aw32257_power_supply_get_property(struct power_supply *psy,
 	int ret = 0;
 	int online, health, type, cur;
 
+	mutex_lock(&bq->lock);
 	switch (psp) {
+	case POWER_SUPPLY_PROP_CALIBRATE:
+		ret = aw32257_charger_get_enabled(bq);
+		if (ret < 0)
+			break;
+		val->intval = ret;
+		ret = 0;
+		break;
 	case POWER_SUPPLY_PROP_STATUS:
 		if (bq->limit)
 			val->intval = aw32257_charger_get_status(bq);
@@ -1529,8 +1587,10 @@ static int aw32257_power_supply_get_property(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_ONLINE:
 		ret = aw32257_charger_get_online(bq, &online);
-		if (ret)
-			return -EINVAL;
+		if (ret) {
+			ret = -EINVAL;
+			break;
+		}
 
 		val->intval = online;
 		break;
@@ -1564,8 +1624,9 @@ static int aw32257_power_supply_get_property(struct power_supply *psy,
 		}
 		break;
 	default:
-		return -EINVAL;
+		ret = -EINVAL;
 	}
+	mutex_unlock(&bq->lock);
 	return ret;
 }
 
@@ -1935,18 +1996,21 @@ static int aw32257_dts_init(struct aw32257_device *bq, struct device_node *np)
 	if (!(bq->dev))
 		return -EINVAL;
 
-#ifdef CONFIG_CHARGE_PD
-	chg_pd_gpio = of_get_named_gpio(np, "charge,chg-pd-gpio", 0);
-	if (chg_pd_gpio < 0)
-		dev_err(bq->dev, "Unable to get chg-pd gpio\n");
-	else {
-		ret = gpio_request(chg_pd_gpio, NULL);
-		if (ret < 0)
-			dev_err(bq->dev, "gpio_request error\n");
+	if (of_find_property(np, "charge,chg-pd-gpio", NULL)) {
+		bq->chg_pd_gpio = of_get_named_gpio(np, "charge,chg-pd-gpio", 0);
+		if (bq->chg_pd_gpio < 0)
+			return bq->chg_pd_gpio;
 
-		gpio_direction_output(chg_pd_gpio, 0);
+		ret = devm_gpio_request_one(bq->dev, bq->chg_pd_gpio,
+					    GPIOF_OUT_INIT_LOW, "chg-pd");
+		if (ret)
+			return ret;
+
+		bq->chg_pd_notifier.notifier_call = chg_pd_notify;
+		ret = devm_register_reboot_notifier(bq->dev, &bq->chg_pd_notifier);
+		if (ret)
+			return ret;
 	}
-#endif
 
 	/*
 	 * The E5 board uses the awinic vendor prefix and carries none of the
@@ -2028,6 +2092,7 @@ static int aw32257_probe(struct i2c_client *client,
 	/* Matched through of_device_id on this board, so id is NULL. */
 	dev_info(dev, "id name = %s\n", id ? id->name : AW32257_PSY_NAME);
 	bq->dev = dev;
+	bq->chg_pd_gpio = -ENOENT;
 	bq->mode = AW32257_MODE_OFF;
 	bq->reported_mode = AW32257_MODE_OFF;
 	i2c_set_clientdata(client, bq);
@@ -2088,22 +2153,9 @@ static int aw32257_probe(struct i2c_client *client,
 		bq->charger_pd_mask = AW32257_DISABLE_PIN_MASK_2720;
 	else if (of_device_is_compatible(regmap_np->parent, "sprd,sc2730"))
 		bq->charger_pd_mask = AW32257_DISABLE_PIN_MASK_2730;
+	else if (of_device_is_compatible(regmap_np, "sprd,ump962x-syscon"))
+		bq->charger_pd_mask = AW32257_DISABLE_PIN_MASK_962X;
 	else {
-		/*
-		 * The board PMIC is sprd,ump9620, which is none of the sc27xx
-		 * parts this table knows about.  The stock 5.15.119 driver
-		 * registers aw322xx_charger on this very board without ever
-		 * touching the PMIC - its dmesg contains no charger_pd or
-		 * syscon line at all - and CONFIG_CHARGE_PD is off here, so
-		 * charging is driven by the AW32257_CHARGER_ENABLE command
-		 * over i2c rather than by gating a PMIC pin.
-		 *
-		 * Treat an unknown PMIC as "no PMIC gating": a zero mask makes
-		 * every regmap_update_bits() on charger_pd a no-op, which keeps
-		 * the probe alive.  Failing here with -EINVAL instead left
-		 * 64a00000.usb stuck at -EPROBE_DEFER forever, because this
-		 * charger is one of its fw_devlink suppliers.
-		 */
 		dev_warn(dev, "unknown PMIC %s, no charger_pd gating\n",
 			 regmap_np->parent ? regmap_np->parent->name : "?");
 		bq->charger_pd_mask = 0;
@@ -2136,30 +2188,22 @@ static int aw32257_probe(struct i2c_client *client,
 	 */
 	bq->charger_desc.name = id ? id->name : AW32257_PSY_NAME;
 
+	ret = aw32257_dts_init(bq, np);
+	if (ret) {
+		dev_err(dev, "failed init dts\n");
+		goto error_1;
+	}
+
 	ret = aw32257_power_supply_init(bq, np);
 	if (ret) {
 		dev_err(dev, "failed to register power supply: %d\n", ret);
 		goto error_1;
 	}
 
-#ifdef CONFIG_CHARGE_PD
-	ret = register_reboot_notifier(&chg_pd_notifier);
-	if (ret) {
-		dev_err(dev, "register_reboot_notifier error: %d\n", ret);
-		goto error_1;
-	}
-#endif
-
 	ret = aw32257_sysfs_init(bq);
 	if (ret) {
 		dev_err(dev, "failed to create sysfs entries: %d\n", ret);
-		goto error_2;
-	}
-
-	ret = aw32257_dts_init(bq, np);
-	if (ret) {
-		dev_err(dev, "failed init dts\n");
-		goto error_3;
+		goto error_1;
 	}
 
 	ret = aw32257_charger_hw_init(bq);
@@ -2168,7 +2212,11 @@ static int aw32257_probe(struct i2c_client *client,
 		goto error_3;
 	}
 
-	aw32257_charger_stop_charge(bq);
+	mutex_lock(&bq->lock);
+	ret = aw32257_charger_set_status(bq, false);
+	mutex_unlock(&bq->lock);
+	if (ret)
+		goto error_3;
 
 	device_init_wakeup(bq->dev, true);
 	bq->usb_notify.notifier_call = aw32257_charger_usb_change;
@@ -2187,10 +2235,7 @@ static int aw32257_probe(struct i2c_client *client,
 
 error_3:
 	aw32257_sysfs_exit(bq);
-error_2:
-	unregister_reboot_notifier(&chg_pd_notifier);
 error_1:
-	devm_kfree(&client->dev, bq);
 	return ret;
 }
 
