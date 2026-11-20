@@ -365,8 +365,15 @@ int sprd_mmc_health_init(struct mmc_card *card)
 {
 	int err = 0;
 
-	if (!card || mmc_health)
+	if (!card)
 		return -EINVAL;
+
+	/*
+	 * Health accounting covers the single eMMC; SD and SDIO cards also
+	 * reach this hook on every (re)initialisation.
+	 */
+	if (mmc_health || !mmc_card_mmc(card))
+		return 0;
 
 	/* mmc health init*/
 	err = mmc_health_init(card);
