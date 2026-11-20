@@ -610,9 +610,8 @@ static int ump96xx_tsen_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	ret = of_property_read_u32(np, "v2t_table_id", &tsx_table_id);
-	if (ret) {
-		dev_err(&pdev->dev, "failed to get v2t table id\n");
+	if (of_property_read_u32(np, "v2t_table_id", &tsx_table_id)) {
+		dev_dbg(&pdev->dev, "no v2t table id, using table 1\n");
 		tsx_table_id = 1;
 	}
 
@@ -646,7 +645,7 @@ static int ump96xx_tsen_probe(struct platform_device *pdev)
 		}
 		return ump96xx_tsensor_disable(regmap, base);
 	}
-	return ret;
+	return 0;
 }
 
 //module_platform_driver(ump96xx_tsen_driver);
