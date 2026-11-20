@@ -115,6 +115,7 @@
 			sprd-uid {
 				compatible = "sprd,uid";
 				nvmem-cells = <&uid_start>, <&uid_end>;
+				nvmem-cell-names = "uid_start", "uid_end";
 			};
 
 			front_sensor: front-sensor {
@@ -347,6 +348,15 @@
 /* The shipped DSP firmware uses the 0xaf700000/0xafa00000 DDR layout. */
 &audio_reserved {
 	reg = <0x0 0xaf700000 0x0 0x00300000>;
+};
+
+/* The stock E5 reads the UID start word at 0xc8 and the end word at 0xc4. */
+&uid_start {
+	reg = <0xc8 0x4>;
+};
+
+&uid_end {
+	reg = <0xc4 0x4>;
 };
 
 &audiodsp_reserved {
