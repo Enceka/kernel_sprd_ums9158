@@ -1500,6 +1500,9 @@ static int aw32257_power_supply_set_property(struct power_supply *psy,
 
 	mutex_lock(&bq->lock);
 	switch (psp) {
+	case POWER_SUPPLY_PROP_PRESENT:
+		/* Charger Manager uses PRESENT to notify external power changes. */
+		break;
 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT:
 		ret = aw32257_set_charge_current(bq, val->intval);
 		if (ret < 0)
