@@ -6,6 +6,7 @@
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/sysfs.h>
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
@@ -27,7 +28,6 @@
  */
 #define CONFIG_7S_WR_PROTECT_DISABLE	0x03991
 #define CONFIG_7S_WR_PROTECT_EN		0x03990
-#define BIT_POR_WR_PROT_VALUE(x)	GENMASK(14, 0)
 #define BIT_POR_WR_PROT			BIT(15)
 
 struct sprd_7sreset_priv {
@@ -38,6 +38,7 @@ struct sprd_7sreset_priv {
 struct sprd_7sreset {
 	struct device *dev;
 	struct regmap *reg_map;
+	struct mutex lock;
 	u32 reg_reset_ctrl;
 	u32 reg_7s_ctrl;
 	const struct sprd_7sreset_priv *priv;
@@ -78,17 +79,12 @@ static int sprd_por_wr_7s_control_unlock(struct device *dev, int enable)
 	u32 r_val;
 	struct sprd_7sreset *sprd_7sreset_dev = dev_get_drvdata(dev);
 
-	if (enable) {
-		regmap_update_bits(sprd_7sreset_dev->reg_map,
-					  sprd_7sreset_dev->priv->reg_wr_protect,
-					  CONFIG_7S_WR_PROTECT_DISABLE,
-					  BIT_POR_WR_PROT_VALUE(~0U));
-	} else {
-		regmap_update_bits(sprd_7sreset_dev->reg_map,
-					  sprd_7sreset_dev->priv->reg_wr_protect,
-					  CONFIG_7S_WR_PROTECT_EN,
-					  BIT_POR_WR_PROT_VALUE(~0U));
-	}
+	ret = regmap_write(sprd_7sreset_dev->reg_map,
+			   sprd_7sreset_dev->priv->reg_wr_protect,
+			   enable ? CONFIG_7S_WR_PROTECT_DISABLE :
+			   CONFIG_7S_WR_PROTECT_EN);
+	if (ret)
+		return ret;
 
 	ret = regmap_read(sprd_7sreset_dev->reg_map,
 			  sprd_7sreset_dev->priv->reg_wr_protect, &r_val);
@@ -102,31 +98,41 @@ static int sprd_por_wr_7s_control_unlock(struct device *dev, int enable)
 	return 0;
 }
 
-static int sprd_7sreset_disable(struct device *dev, int disable)
+static int sprd_7sreset_update_bits(struct device *dev, u32 reg, u32 mask,
+				  u32 val)
 {
-	int ret;
+	int ret, lock_ret;
 	struct sprd_7sreset *sprd_7sreset_dev = dev_get_drvdata(dev);
 
+	mutex_lock(&sprd_7sreset_dev->lock);
 
 	if (sprd_7sreset_dev->priv->reg_wr_protect) {
 		ret = sprd_por_wr_7s_control_unlock(dev, true);
 		if (ret)
-			return -EINVAL;
+			goto relock;
 	}
-	if (disable)
-		ret = regmap_update_bits(sprd_7sreset_dev->reg_map,
-					 sprd_7sreset_dev->reg_7s_ctrl,
-					 BIT_PBINT_7S_RST_DISABLE,
-					 BIT_PBINT_7S_RST_DISABLE);
-	else
-		ret = regmap_update_bits(sprd_7sreset_dev->reg_map,
-					 sprd_7sreset_dev->reg_7s_ctrl,
-					 BIT_PBINT_7S_RST_DISABLE, 0);
 
-	if (sprd_7sreset_dev->priv->reg_wr_protect)
-		ret = sprd_por_wr_7s_control_unlock(dev, false);
+	ret = regmap_update_bits(sprd_7sreset_dev->reg_map, reg, mask, val);
+
+relock:
+	if (sprd_7sreset_dev->priv->reg_wr_protect) {
+		lock_ret = sprd_por_wr_7s_control_unlock(dev, false);
+		if (!ret)
+			ret = lock_ret;
+	}
+
+	mutex_unlock(&sprd_7sreset_dev->lock);
 
 	return ret;
+}
+
+static int sprd_7sreset_disable(struct device *dev, int disable)
+{
+	struct sprd_7sreset *sprd_7sreset_dev = dev_get_drvdata(dev);
+
+	return sprd_7sreset_update_bits(dev, sprd_7sreset_dev->reg_7s_ctrl,
+				       BIT_PBINT_7S_RST_DISABLE,
+				       disable ? BIT_PBINT_7S_RST_DISABLE : 0);
 }
 
 static int sprd_7sreset_is_disable(struct device *dev)
@@ -146,31 +152,15 @@ static int sprd_7sreset_is_disable(struct device *dev)
 static int sprd_7sreset_set_keymode(struct device *dev, int mode)
 {
 	u32 reg;
-	int ret;
 	struct sprd_7sreset *sprd_7sreset_dev = dev_get_drvdata(dev);
-
-	if (sprd_7sreset_dev->priv->reg_wr_protect) {
-		ret = sprd_por_wr_7s_control_unlock(dev, true);
-		if (ret)
-			return -EINVAL;
-	}
 
 	if (sprd_7sreset_dev->priv->chip_ver == 0x2731)
 		reg = sprd_7sreset_dev->reg_reset_ctrl;
 	else
 		reg = sprd_7sreset_dev->reg_7s_ctrl;
 
-	if (!mode)
-		ret = regmap_update_bits(sprd_7sreset_dev->reg_map, reg,
-					 BIT_KEY2_7S_RST_EN,
-					 BIT_KEY2_7S_RST_EN);
-	else
-		ret = regmap_update_bits(sprd_7sreset_dev->reg_map, reg,
-					 BIT_KEY2_7S_RST_EN, 0);
-	if (sprd_7sreset_dev->priv->reg_wr_protect)
-		ret = sprd_por_wr_7s_control_unlock(dev, false);
-
-	return ret;
+	return sprd_7sreset_update_bits(dev, reg, BIT_KEY2_7S_RST_EN,
+				       mode ? 0 : BIT_KEY2_7S_RST_EN);
 }
 
 static int sprd_7sreset_get_keymode(struct device *dev)
@@ -194,28 +184,10 @@ static int sprd_7sreset_get_keymode(struct device *dev)
 static int sprd_7sreset_set_resetmode(struct device *dev, int mode)
 {
 	struct sprd_7sreset *sprd_7sreset_dev = dev_get_drvdata(dev);
-	int ret;
 
-	if (sprd_7sreset_dev->priv->reg_wr_protect) {
-		ret = sprd_por_wr_7s_control_unlock(dev, true);
-		if (ret)
-			return -EINVAL;
-	}
-
-	if (mode)
-		ret = regmap_update_bits(sprd_7sreset_dev->reg_map,
-					 sprd_7sreset_dev->reg_7s_ctrl,
-					 BIT_PBINT_7S_RST_MODE,
-					 BIT_PBINT_7S_RST_MODE);
-	else
-		ret = regmap_update_bits(sprd_7sreset_dev->reg_map,
-					 sprd_7sreset_dev->reg_7s_ctrl,
-					 BIT_PBINT_7S_RST_MODE, 0);
-
-	if (sprd_7sreset_dev->priv->reg_wr_protect)
-		ret = sprd_por_wr_7s_control_unlock(dev, false);
-
-	return ret;
+	return sprd_7sreset_update_bits(dev, sprd_7sreset_dev->reg_7s_ctrl,
+				       BIT_PBINT_7S_RST_MODE,
+				       mode ? BIT_PBINT_7S_RST_MODE : 0);
 }
 
 static int sprd_7sreset_get_resetmode(struct device *dev)
@@ -235,27 +207,10 @@ static int sprd_7sreset_get_resetmode(struct device *dev)
 static int sprd_7sreset_set_shortmode(struct device *dev, int mode)
 {
 	struct sprd_7sreset *sprd_7sreset_dev = dev_get_drvdata(dev);
-	int ret;
 
-	if (sprd_7sreset_dev->priv->reg_wr_protect) {
-		ret = sprd_por_wr_7s_control_unlock(dev, true);
-		if (ret)
-			return -EINVAL;
-	}
-	if (mode)
-		ret = regmap_update_bits(sprd_7sreset_dev->reg_map,
-					 sprd_7sreset_dev->reg_7s_ctrl,
-					 BIT_PBINT_7S_RST_SWMODE,
-					 BIT_PBINT_7S_RST_SWMODE);
-	else
-		ret = regmap_update_bits(sprd_7sreset_dev->reg_map,
-					 sprd_7sreset_dev->reg_7s_ctrl,
-					 BIT_PBINT_7S_RST_SWMODE, 0);
-
-	if (sprd_7sreset_dev->priv->reg_wr_protect)
-		ret = sprd_por_wr_7s_control_unlock(dev, false);
-
-	return ret;
+	return sprd_7sreset_update_bits(dev, sprd_7sreset_dev->reg_7s_ctrl,
+				       BIT_PBINT_7S_RST_SWMODE,
+				       mode ? BIT_PBINT_7S_RST_SWMODE : 0);
 }
 
 static int sprd_7sreset_get_shortmode(struct device *dev)
@@ -277,25 +232,13 @@ static int sprd_7sreset_set_threshold(struct device *dev, u32 th)
 	int shft = __ffs(BITS_PBINT_7S_RST_THRESHOLD(~0U));
 	u32 max = BITS_PBINT_7S_RST_THRESHOLD(~0U) >> shft;
 	struct sprd_7sreset *sprd_7sreset_dev = dev_get_drvdata(dev);
-	int ret;
 
-	if (sprd_7sreset_dev->priv->reg_wr_protect) {
-		ret = sprd_por_wr_7s_control_unlock(dev, true);
-		if (ret)
-			return -EINVAL;
-	}
 	if (th > max)
 		th = max;
 
-	ret = regmap_update_bits(sprd_7sreset_dev->reg_map,
-				 sprd_7sreset_dev->reg_7s_ctrl,
-				 BITS_PBINT_7S_RST_THRESHOLD(~0U),
-				 BITS_PBINT_7S_RST_THRESHOLD(th));
-
-	if (sprd_7sreset_dev->priv->reg_wr_protect)
-		ret = sprd_por_wr_7s_control_unlock(dev, false);
-
-	return ret;
+	return sprd_7sreset_update_bits(dev, sprd_7sreset_dev->reg_7s_ctrl,
+				       BITS_PBINT_7S_RST_THRESHOLD(~0U),
+				       BITS_PBINT_7S_RST_THRESHOLD(th));
 }
 
 static int sprd_7sreset_get_threshold(struct device *dev)
@@ -474,14 +417,14 @@ static int sprd_7sreset_probe(struct platform_device *pdev)
 		return ret;
 
 	sprd_7sreset_dev->reg_7s_ctrl = val;
+	mutex_init(&sprd_7sreset_dev->lock);
+	platform_set_drvdata(pdev, sprd_7sreset_dev);
 
 	ret = sysfs_create_groups(&dev->kobj, sprd7sreset_groups);
 	if (ret) {
 		dev_err(&pdev->dev, "failed to create device attributes.\n");
 		return ret;
 	}
-
-	platform_set_drvdata(pdev, sprd_7sreset_dev);
 
 	return 0;
 }
