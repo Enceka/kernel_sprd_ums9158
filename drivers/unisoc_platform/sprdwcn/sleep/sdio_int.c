@@ -79,6 +79,11 @@ void sdio_wait_pub_int_done(void)
 		/* wait pub_int handle finish */
 		if (unlikely(atomic_read(&flag_pub_int_done) == 0))
 			WCN_INFO("wait pub_int_done\n");
+		if (marlin_btwf_wakeup_lock_enabled()) {
+			ret = marlin_avdd18_dcxo_enable(false);
+			if (ret)
+				WCN_ERR("disable dcxo for suspend err:%ld\n", ret);
+		}
 		ret = wait_event_killable_timeout(sdio_int.pub_int_done,
 			atomic_read(&flag_pub_int_done), usecs_to_jiffies(3000 * 10));
 

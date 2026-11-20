@@ -50,6 +50,8 @@ enum wcn_clock_mode {
 
 enum wcn_clock_type wcn_get_xtal_26m_clk_type(void);
 enum wcn_clock_mode wcn_get_xtal_26m_clk_mode(void);
+bool marlin_btwf_wakeup_lock_enabled(void);
+int marlin_avdd18_dcxo_enable(bool enable);
 const char *wcn_get_chip_name(void);
 enum wcn_chip_id_type wcn_get_chip_type(void);
 void marlin_power_off(enum wcn_sub_sys subsys);

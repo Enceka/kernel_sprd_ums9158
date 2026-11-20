@@ -14,6 +14,7 @@
 #include <linux/kernel.h>
 #include <linux/mfd/syscon.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/of_address.h>
 #include <linux/of_device.h>
 #include <linux/of_gpio.h>
@@ -109,6 +110,7 @@ static struct wifi_calibration wifi_data;
 struct completion ge2_completion;
 static int first_call_flag = 1;
 static struct marlin_device *marlin_dev;
+static DEFINE_MUTEX(dcxo18_lock);
 struct sprdwcn_gnss_ops *gnss_ops;
 static struct completion find_tsx_completion;
 static const struct firmware *tsx_firmware;
@@ -1513,41 +1515,67 @@ static int marlin_clk_enable(bool enable)
 	return ret;
 }
 
-static int marlin_avdd18_dcxo_enable(bool enable)
+bool marlin_btwf_wakeup_lock_enabled(void)
+{
+	struct wcn_match_data *g_match_config = get_wcn_match_config();
+
+	return g_match_config && g_match_config->unisoc_wcn_m3lite &&
+		marlin_dev &&
+		of_property_read_bool(marlin_dev->np, "btwf-wakeup-lock");
+}
+
+int marlin_avdd18_dcxo_enable(bool enable)
 {
 	int ret = 0;
 	struct wcn_match_data *g_match_config = get_wcn_match_config();
 
 	if (!marlin_dev->dcxo18)
 		return 0;
+	if (IS_ERR(marlin_dev->dcxo18)) {
+		ret = PTR_ERR(marlin_dev->dcxo18);
+		pr_err("invalid avdd18_dcxo regulator: %d\n", ret);
+		return ret;
+	}
+
+	mutex_lock(&dcxo18_lock);
 
 	if (enable) {
 		if (g_match_config && !g_match_config->unisoc_wcn_pcie) {
 			if (!marlin_dev->bound_dcxo18 &&
-			    regulator_is_enabled(marlin_dev->dcxo18)) {
+			    marlin_dev->dcxo18_users) {
 				pr_info("avdd18_dcxo 1v8 have enable\n");
-				return 0;
+				goto out;
 			}
 		}
 
 		pr_info("avdd18_dcxo set 1v8\n");
-		regulator_set_voltage(marlin_dev->dcxo18, 1800000, 1800000);
+		ret = regulator_set_voltage(marlin_dev->dcxo18, 1800000, 1800000);
+		if (ret) {
+			pr_err("fail to set avdd18_dcxo voltage: %d\n", ret);
+			goto out;
+		}
 		if (!marlin_dev->bound_dcxo18) {
 			pr_info("avdd18_dcxo power enable\n");
 			ret = regulator_enable(marlin_dev->dcxo18);
 			if (ret)
-				pr_err("fail to enable avdd18_dcxo\n");
+				pr_err("fail to enable avdd18_dcxo: %d\n", ret);
+			else
+				marlin_dev->dcxo18_users++;
 		}
 	} else {
 		if (!marlin_dev->bound_dcxo18 &&
-		    regulator_is_enabled(marlin_dev->dcxo18)) {
+		    marlin_dev->dcxo18_users) {
 			pr_info("avdd18_dcxo power disable\n");
 			ret = regulator_disable(marlin_dev->dcxo18);
 			if (ret)
-				pr_err("fail to disable avdd18_dcxo\n");
+				pr_err("fail to disable avdd18_dcxo: %d\n", ret);
+			else
+				marlin_dev->dcxo18_users--;
 		}
 	}
 
+out:
+	mutex_unlock(&dcxo18_lock);
 	return ret;
 }
 

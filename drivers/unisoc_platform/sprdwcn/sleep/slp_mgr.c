@@ -35,6 +35,8 @@
 #include "wcn_glb.h"
 #include "slp_dbg.h"
 
+#define BTWF_WAKEUP_LOCK 0x60
+
 static struct slp_mgr_t slp_mgr;
 
 struct slp_mgr_t *slp_get_info(void)
@@ -64,6 +66,7 @@ int slp_mgr_wakeup(enum slp_subsys subsys)
 	int do_dump = 0;
 	ktime_t time_end;
 	struct wcn_match_data *g_match_config = get_wcn_match_config();
+	bool dcxo_wakeup = marlin_btwf_wakeup_lock_enabled();
 
 	if (STAY_DEATH == (atomic_read(&slp_mgr.cp2_state))) {
 		WCN_ERR("CP2 has been shutdown, ignoring this wakeup\n");
@@ -82,6 +85,12 @@ int slp_mgr_wakeup(enum slp_subsys subsys)
 				goto try_timeout;
 			}
 			slp_sts &= 0xF0;
+			if (dcxo_wakeup && slp_sts != BTWF_WAKEUP_LOCK) {
+				dcxo_wakeup = false;
+				ret = marlin_avdd18_dcxo_enable(true);
+				if (ret)
+					WCN_ERR("enable dcxo for wakeup err:%d\n", ret);
+			}
 
 			if (g_match_config && g_match_config->unisoc_wcn_m3lite) {
 				if ((slp_sts != BTWF_IN_DEEPSLEEP) &&

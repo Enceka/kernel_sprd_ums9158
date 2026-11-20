@@ -87,6 +87,8 @@ struct marlin_device {
 	struct regulator *avdd33;
 	/* for internal 26M clock */
 	struct regulator *dcxo18;
+	/* Successful regulator enables owned by this consumer. */
+	unsigned int dcxo18_users;
 	struct clk *clk_32k;
 
 	struct clk *clk_parent;
