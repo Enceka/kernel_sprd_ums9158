@@ -200,6 +200,7 @@ static int sprd_pmic_wdt_on(struct sprd_pmic_wdt *pmic_wdt)
 		retry_cnt = 0;
 		len = strlen(p_cmd) + 1;
 		while (retry_cnt < RETRY_CNT_MAX) {
+			pm_wakeup_event(pmic_wdt->dev, PMIC_WDT_WAKE_UP_MS);
 			nwrite = sbuf_write(SIPC_ID_PM_SYS, SMSG_CH_TTY, 0, p_cmd, len,
 					    msecs_to_jiffies(timeout));
 			pr_err("cm4 watchdog on/off: len = %d, nwrite = %d\n", len, nwrite);
@@ -490,6 +491,7 @@ static int sprd_pmic_wdt_probe(struct platform_device *pdev)
 	if (!pmic_wdt)
 		return -ENOMEM;
 
+	pmic_wdt->dev = &pdev->dev;
 	pmic_wdt->data = of_device_get_match_data(&pdev->dev);
 	if (!pmic_wdt->data) {
 		dev_err(&pdev->dev, "can not get private data!\n");
@@ -511,28 +513,34 @@ static int sprd_pmic_wdt_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	device_init_wakeup(pmic_wdt->dev, true);
+	ret = device_init_wakeup(pmic_wdt->dev, true);
+	if (ret) {
+		dev_err(&pdev->dev, "failed to initialize wakeup: %d\n", ret);
+		goto err_wakeup;
+	}
+
 	kthread_init_worker(&pmic_wdt->wdt_kworker);
 	kthread_init_work(&pmic_wdt->wdt_kwork, sprd_pmic_wdt_work);
 	pmic_wdt->wdt_thread = kthread_run(kthread_worker_fn, &pmic_wdt->wdt_kworker,
 					   "pmic_wdt_worker");
 	if (IS_ERR(pmic_wdt->wdt_thread)) {
+		ret = PTR_ERR(pmic_wdt->wdt_thread);
 		pmic_wdt->wdt_thread = NULL;
-		dev_err(&pdev->dev, "failed to run pmic_wdt_thread:\n");
-		return PTR_ERR(pmic_wdt->wdt_thread);
+		dev_err(&pdev->dev, "failed to run pmic_wdt_thread: %d\n", ret);
+		goto err_wakeup;
 	} else {
 		sched_setscheduler(pmic_wdt->wdt_thread, SCHED_FIFO, &param);
 	}
 
 	pmic_wdt->wdten = sprd_pmic_wdt_en("wdten");
 	pmic_wdt->sleep_en = sprd_pmic_wdt_en("dswdten");
-	pmic_wdt->dev = &pdev->dev;
 
 	rval = sbuf_register_notifier(SIPC_ID_PM_SYS, SMSG_CH_TTY, 0,
 				      sprd_pmic_wdt_init, pmic_wdt);
 	if (rval) {
 		dev_err(&pdev->dev, "sbuf notifier failed rval = %d\n", rval);
-		return -EPROBE_DEFER; //depends on UNISOC_SIPC_SPIPE for SP9863-GO
+		ret = -EPROBE_DEFER; //depends on UNISOC_SIPC_SPIPE for SP9863-GO
+		goto err_stop_worker;
 	}
 
 #ifndef CONFIG_SPRD_DEBUG
@@ -541,7 +549,8 @@ static int sprd_pmic_wdt_probe(struct platform_device *pdev)
 		ret = sprd_pmic_wdt_enable(pmic_wdt);
 		if (ret) {
 			dev_err(&pdev->dev, "failed to enable wdt\n");
-			return ret;
+			sbuf_unregister_notifier(SIPC_ID_PM_SYS, SMSG_CH_TTY, 0);
+			goto err_stop_worker;
 		}
 		sprd_wdt_feeder_init(pmic_wdt);
 	}
@@ -549,6 +558,13 @@ static int sprd_pmic_wdt_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, pmic_wdt);
 
+	return 0;
+
+err_stop_worker:
+	kthread_flush_worker(&pmic_wdt->wdt_kworker);
+	kthread_stop(pmic_wdt->wdt_thread);
+err_wakeup:
+	device_init_wakeup(pmic_wdt->dev, false);
 	return ret;
 }
 
@@ -557,12 +573,9 @@ static int sprd_pmic_wdt_remove(struct platform_device *pdev)
 	struct sprd_pmic_wdt *pmic_wdt = dev_get_drvdata(&pdev->dev);
 	int rval;
 
-	rval = sbuf_register_notifier(SIPC_ID_PM_SYS, SMSG_CH_TTY,
-				      0, NULL, NULL);
-	if (rval) {
+	rval = sbuf_unregister_notifier(SIPC_ID_PM_SYS, SMSG_CH_TTY, 0);
+	if (rval)
 		dev_err(&pdev->dev, "sbuf unregitster notifier failed rval = %d\n", rval);
-		return rval;
-	}
 
 	kthread_flush_worker(&pmic_wdt->wdt_kworker);
 	kthread_stop(pmic_wdt->wdt_thread);
@@ -574,7 +587,9 @@ static int sprd_pmic_wdt_remove(struct platform_device *pdev)
 	}
 #endif
 
-	return 0;
+	device_init_wakeup(pmic_wdt->dev, false);
+
+	return rval;
 }
 
 static const struct of_device_id sprd_pmic_wdt_of_match[] = {
