@@ -398,7 +398,7 @@ static int sprd_pmic_probe(struct spi_device *spi)
 		return ret;
 	}
 
-	device_init_wakeup(&spi->dev, true);
+	device_init_wakeup(&spi->dev, ddata->irq > 0);
 	return 0;
 }
 
@@ -407,7 +407,7 @@ static int sprd_pmic_suspend(struct device *dev)
 {
 	struct sprd_pmic *ddata = dev_get_drvdata(dev);
 
-	if (device_may_wakeup(dev))
+	if (ddata->irq > 0 && device_may_wakeup(dev))
 		return enable_irq_wake(ddata->irq);
 
 	return 0;
@@ -417,7 +417,7 @@ static int sprd_pmic_resume(struct device *dev)
 {
 	struct sprd_pmic *ddata = dev_get_drvdata(dev);
 
-	if (device_may_wakeup(dev))
+	if (ddata->irq > 0 && device_may_wakeup(dev))
 		return disable_irq_wake(ddata->irq);
 
 	return 0;
