@@ -2679,31 +2679,31 @@ static struct sprd_clk_desc ums9621_mm_clk_desc = {
  * kernel gates these clock.
  */
 static SPRD_SC_GATE_CLK_HW(dpu_eb, "dpu-eb", &dpu_vsp_eb.common.hw, 0x0,
-			0x1000, BIT(0), CLK_IGNORE_UNUSED, 0);
+			0x1000, BIT(0), CLK_IGNORE_UNUSED, SPRD_GATE_NON_AON);
 static SPRD_SC_GATE_CLK_HW(dsi0_eb, "dsi0-eb", &dpu_vsp_eb.common.hw, 0x0,
-			0x1000, BIT(1), CLK_IGNORE_UNUSED, 0);
+			0x1000, BIT(1), CLK_IGNORE_UNUSED, SPRD_GATE_NON_AON);
 static SPRD_SC_GATE_CLK_HW(dsi1_eb, "dsi1-eb", &dpu_vsp_eb.common.hw, 0x0,
-			0x1000, BIT(2), CLK_IGNORE_UNUSED, 0);
+			0x1000, BIT(2), CLK_IGNORE_UNUSED, SPRD_GATE_NON_AON);
 static SPRD_SC_GATE_CLK_HW(vpu_enc0_eb, "vpu-enc0-eb", &dpu_vsp_eb.common.hw, 0x0,
-			0x1000, BIT(3), CLK_IGNORE_UNUSED, 0);
+			0x1000, BIT(3), CLK_IGNORE_UNUSED, SPRD_GATE_NON_AON);
 static SPRD_SC_GATE_CLK_HW(vpu_dec_eb, "dpu-dec-eb", &dpu_vsp_eb.common.hw, 0x0,
-			0x1000, BIT(5), CLK_IGNORE_UNUSED, 0);
+			0x1000, BIT(5), CLK_IGNORE_UNUSED, SPRD_GATE_NON_AON);
 static SPRD_SC_GATE_CLK_HW(gsp0_eb, "gsp0-eb", &dpu_vsp_eb.common.hw, 0x0,
-			0x1000, BIT(6), CLK_IGNORE_UNUSED, 0);
+			0x1000, BIT(6), CLK_IGNORE_UNUSED, SPRD_GATE_NON_AON);
 static SPRD_SC_GATE_CLK_HW(dpu_dvfs_eb, "dpu-dvfs-eb", &dpu_vsp_eb.common.hw, 0x0,
-			0x1000, BIT(8), CLK_IGNORE_UNUSED, 0);
+			0x1000, BIT(8), CLK_IGNORE_UNUSED, SPRD_GATE_NON_AON);
 static SPRD_SC_GATE_CLK_HW(dpu_ckg_eb, "dpu-ckg-eb", &dpu_vsp_eb.common.hw, 0x0,
-			0x1000, BIT(9), CLK_IGNORE_UNUSED, 0);
+			0x1000, BIT(9), CLK_IGNORE_UNUSED, SPRD_GATE_NON_AON);
 static SPRD_SC_GATE_CLK_HW(dpu_busmon_eb, "dpu-busmon-eb", &dpu_vsp_eb.common.hw, 0x0,
-			0x1000, BIT(10), CLK_IGNORE_UNUSED, 0);
+			0x1000, BIT(10), CLK_IGNORE_UNUSED, SPRD_GATE_NON_AON);
 static SPRD_SC_GATE_CLK_HW(dsc0_eb, "dsc0-eb", &dpu_vsp_eb.common.hw, 0x0,
-			0x1000, BIT(11), CLK_IGNORE_UNUSED, 0);
+			0x1000, BIT(11), CLK_IGNORE_UNUSED, SPRD_GATE_NON_AON);
 static SPRD_SC_GATE_CLK_HW(dsc1_eb, "dsc1-eb", &dpu_vsp_eb.common.hw, 0x0,
-			0x1000, BIT(12), CLK_IGNORE_UNUSED, 0);
+			0x1000, BIT(12), CLK_IGNORE_UNUSED, SPRD_GATE_NON_AON);
 static SPRD_GATE_CLK_HW(m_div6clk_gate_en, "m-div6clk-gate-en", &dpu_vsp_eb.common.hw,
-		     0xb0, BIT(3), CLK_IGNORE_UNUSED, 0);
+		     0xb0, BIT(3), CLK_IGNORE_UNUSED, SPRD_GATE_NON_AON);
 static SPRD_GATE_CLK_HW(s_div6clk_gate_en, "s-div6clk-gate-en", &dpu_vsp_eb.common.hw,
-		     0xb0, BIT(4), CLK_IGNORE_UNUSED, 0);
+		     0xb0, BIT(4), CLK_IGNORE_UNUSED, SPRD_GATE_NON_AON);
 
 static struct sprd_clk_common *ums9621_dpu_vsp_gate[] = {
 	/* address base is 0x30100000 */
