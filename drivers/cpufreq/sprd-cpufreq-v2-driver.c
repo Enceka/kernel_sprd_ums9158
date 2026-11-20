@@ -7,7 +7,11 @@
 #include <linux/jiffies.h>
 #include <linux/nvmem-consumer.h>
 #include <linux/pm_qos.h>
+#include <linux/suspend.h>
 #include <linux/thermal.h>
+#if defined(CONFIG_TRACEPOINTS) && defined(CONFIG_ANDROID_VENDOR_HOOKS) && defined(CONFIG_SUSPEND)
+#include <trace/hooks/cpufreq.h>
+#endif
 
 #define low_check(temp)		((int)(temp) < (int)DVFS_TEMP_LOW_LIMIT)
 #define upper_check(temp)	((int)(temp) >= (int)DVFS_TEMP_UPPER_LIMIT)
@@ -894,6 +898,16 @@ static int sprd_cluster_info_init(struct cluster_info *clusters)
 	return 0;
 }
 
+#if defined(CONFIG_TRACEPOINTS) && defined(CONFIG_ANDROID_VENDOR_HOOKS) && defined(CONFIG_SUSPEND)
+static void sprd_cpufreq_suppress_uevent(void *data, struct device *cooling_dev,
+					 int suppress)
+{
+	/* Avoid waking frozen listeners when suspend removes a cooling device. */
+	if (cpuhp_tasks_frozen && pm_suspend_target_state != PM_SUSPEND_ON)
+		dev_set_uevent_suppress(cooling_dev, suppress);
+}
+#endif
+
 static int sprd_cpufreq_driver_probe(struct platform_device *pdev)
 {
 	int ret;
@@ -933,18 +947,43 @@ static int sprd_cpufreq_driver_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	ret = cpufreq_register_driver(&sprd_cpufreq_driver);
-	if (ret)
-		pr_err("register cpufreq driver error\n");
-	else
-		pr_info("register cpufreq driver success\n");
+#if defined(CONFIG_TRACEPOINTS) && defined(CONFIG_ANDROID_VENDOR_HOOKS) && defined(CONFIG_SUSPEND)
+	ret = register_trace_android_vh_cpufreq_offline(sprd_cpufreq_suppress_uevent, NULL);
+	if (ret) {
+		pr_err("register cpufreq offline hook error(%d)\n", ret);
+		return ret;
+	}
+#endif
 
-	return ret;
+	ret = cpufreq_register_driver(&sprd_cpufreq_driver);
+	if (ret) {
+		pr_err("register cpufreq driver error\n");
+#if defined(CONFIG_TRACEPOINTS) && defined(CONFIG_ANDROID_VENDOR_HOOKS) && defined(CONFIG_SUSPEND)
+		unregister_trace_android_vh_cpufreq_offline(sprd_cpufreq_suppress_uevent, NULL);
+		tracepoint_synchronize_unregister();
+#endif
+		return ret;
+	}
+
+	pr_info("register cpufreq driver success\n");
+
+	return 0;
 }
 
 static int sprd_cpufreq_driver_remove(struct platform_device *pdev)
 {
-	return cpufreq_unregister_driver(&sprd_cpufreq_driver);
+	int ret;
+
+	ret = cpufreq_unregister_driver(&sprd_cpufreq_driver);
+	if (ret)
+		return ret;
+
+#if defined(CONFIG_TRACEPOINTS) && defined(CONFIG_ANDROID_VENDOR_HOOKS) && defined(CONFIG_SUSPEND)
+	unregister_trace_android_vh_cpufreq_offline(sprd_cpufreq_suppress_uevent, NULL);
+	tracepoint_synchronize_unregister();
+#endif
+
+	return 0;
 }
 
 /**
