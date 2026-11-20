@@ -121,12 +121,24 @@
 				compatible = "sprd,shell-thermal";
 				#thermal-sensor-cells = <0>;
 				sensor-names = "board-thmzone", "pa-thmzone", "chg-thmzone";
+				temp-coeff = <258 6021 6717 6220 6403 5567 1932
+					      22394 6883 6595 7336 7926 8495 9599
+					      10327 6204 6741 7261 6727 6692 10702>;
+				temp-const = <904>;
+				coeff-offset = <7000>;
+				const-offset = <5000>;
 			};
 
 			back_sensor: back-sensor {
 				compatible = "sprd,shell-thermal";
 				#thermal-sensor-cells = <0>;
 				sensor-names = "board-thmzone", "pa-thmzone", "chg-thmzone";
+				temp-coeff = <719 3481 3711 3601 3420 2466 2753
+					      10130 4929 4812 4919 5107 5523 8347
+					      5330 3649 3909 4031 3694 3576 5893>;
+				temp-const = <837>;
+				coeff-offset = <4000>;
+				const-offset = <4000>;
 			};
 
 			gpio-keys {
