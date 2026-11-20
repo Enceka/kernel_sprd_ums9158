@@ -113,13 +113,18 @@ struct sprd_pmic_wdt {
 	bool wdten;
 	bool sleep_en;
 	bool normal_mode;
+	bool cm4_owned;
+	bool stopping;
+	unsigned long sbuf_events;
 	struct alarm wdt_timer;
 	struct kthread_worker wdt_kworker;
-	struct kthread_work wdt_kwork;
+	struct kthread_delayed_work wdt_kwork;
 	struct task_struct *wdt_thread;
 	struct task_struct *feed_task;
 	int wdt_enabled;
 	u32 wdt_flag;
+	u32 wdt_cmd;
+	u32 wdt_cmd_offset;
 	u32 wdt_ctrl;
 	u64 wdt_load;
 	struct mutex *lock;
@@ -178,53 +183,106 @@ static struct sprd_pmic_wdt_data ump9620_data = {
 
 static int sprd_pmic_wdt_on(struct sprd_pmic_wdt *pmic_wdt)
 {
-	int nwrite, len, retry_cnt;
+	int nwrite, len, retry_cnt, ret, read_ret;
 	int timeout = 100;
-	char *p_cmd = "NULL";
-	u32 val = 0, i;
+	char *p_cmd;
+	u32 val, ctrl, rtc;
 
-	mutex_lock(pmic_wdt->lock);
-
-	for (i = 0; i < ARRAY_SIZE(pmic_wdt_info); i++) {
-		if (!strncmp("wdten", pmic_wdt_info[i], strlen(pmic_wdt_info[i]))) {
+	while (pmic_wdt->wdt_cmd < ARRAY_SIZE(pmic_wdt_info)) {
+		if (pmic_wdt->wdt_cmd == SPRD_WDT_EN) {
 			if (pmic_wdt->wdten)
 				p_cmd = "watchdog on";
 			else
 				p_cmd = "watchdog rstoff";
-		} else if (!strncmp("dswdten", pmic_wdt_info[i], strlen(pmic_wdt_info[i]))) {
+		} else {
 			if (pmic_wdt->sleep_en)
 				p_cmd = "dswdt on";
 			else
 				p_cmd = "dswdt off";
 		}
-		retry_cnt = 0;
 		len = strlen(p_cmd) + 1;
-		while (retry_cnt < RETRY_CNT_MAX) {
+		ret = -ETIMEDOUT;
+		for (retry_cnt = 0; retry_cnt < RETRY_CNT_MAX; retry_cnt++) {
+			if (READ_ONCE(pmic_wdt->stopping))
+				return -ECANCELED;
+			if (test_bit(SBUF_NOTIFY_READY, &pmic_wdt->sbuf_events))
+				return -EAGAIN;
+
 			pm_wakeup_event(pmic_wdt->dev, PMIC_WDT_WAKE_UP_MS);
-			nwrite = sbuf_write(SIPC_ID_PM_SYS, SMSG_CH_TTY, 0, p_cmd, len,
-					    msecs_to_jiffies(timeout));
-			pr_err("cm4 watchdog on/off: len = %d, nwrite = %d\n", len, nwrite);
-			msleep(1000);
-			cpu_relax();
-			regmap_read(pmic_wdt->regmap, pmic_wdt->base + SPRD_PMIC_WDT_LOAD_HIGH,
-				    &val);
-			if (val != SPRD_PMIC_WDT_LOAD_VAULE_HIGH && nwrite == len) {
-#ifndef CONFIG_SPRD_DEBUG
-				if (!IS_ERR_OR_NULL(pmic_wdt->feed_task)) {
-					kthread_stop(pmic_wdt->feed_task);
-					pmic_wdt->feed_task = NULL;
+			if (pmic_wdt->wdt_cmd_offset < len) {
+				nwrite = sbuf_write(SIPC_ID_PM_SYS, SMSG_CH_TTY, 0,
+						    p_cmd + pmic_wdt->wdt_cmd_offset,
+						    len - pmic_wdt->wdt_cmd_offset,
+						    msecs_to_jiffies(timeout));
+				pr_err("cm4 watchdog on/off: len = %d, nwrite = %d\n", len, nwrite);
+				if (nwrite < 0) {
+					ret = nwrite;
+				} else {
+					pmic_wdt->wdt_cmd_offset += nwrite;
+					ret = pmic_wdt->wdt_cmd_offset == len ? 0 : -EIO;
 				}
-#endif
+				if (ret)
+					dev_warn(pmic_wdt->dev,
+						 "%s write failed: %d, sent %u/%d, retry %d\n",
+						 pmic_wdt_info[pmic_wdt->wdt_cmd], ret,
+						 pmic_wdt->wdt_cmd_offset, len, retry_cnt + 1);
+			}
+			msleep(1000);
+			read_ret = regmap_read(pmic_wdt->regmap,
+					       pmic_wdt->base + SPRD_PMIC_WDT_LOAD_HIGH,
+					       &val);
+			if (read_ret) {
+				ret = read_ret;
+				dev_warn(pmic_wdt->dev, "%s load read failed: %d, retry %d\n",
+					 pmic_wdt_info[pmic_wdt->wdt_cmd], ret, retry_cnt + 1);
+				continue;
+			}
+			if (pmic_wdt->wdt_cmd_offset == len &&
+			    val != SPRD_PMIC_WDT_LOAD_VAULE_HIGH) {
+				if (pmic_wdt->wdt_cmd == SPRD_WDT_EN) {
+					ret = regmap_read(pmic_wdt->regmap,
+							  pmic_wdt->base + SPRD_PMIC_WDT_CTRL,
+							  &ctrl);
+					if (ret)
+						continue;
+					ret = regmap_read(pmic_wdt->regmap,
+							  pmic_wdt->data->wdt_rtc_eb_reg, &rtc);
+					if (ret)
+						continue;
+					if ((pmic_wdt->wdten &&
+					     (!(ctrl & SPRD_PMIC_WDT_CNT_EN_BIT) ||
+					      !(ctrl & SPRD_PMIC_WDT_RST_EN_BIT) ||
+					      !(rtc & pmic_wdt->data->wdt_rtc_en))) ||
+					    (!pmic_wdt->wdten &&
+					     (ctrl & SPRD_PMIC_WDT_RST_EN_BIT))) {
+						pmic_wdt->wdt_cmd_offset = 0;
+						ret = -ETIMEDOUT;
+						continue;
+					}
+					pmic_wdt->cm4_owned = true;
+				}
+				dev_info(pmic_wdt->dev, "%s command complete, load high = %#x\n",
+					 pmic_wdt_info[pmic_wdt->wdt_cmd], val);
+				pmic_wdt->wdt_cmd++;
+				pmic_wdt->wdt_cmd_offset = 0;
+				ret = 0;
 				break;
 			}
-			retry_cnt++;
+			if (pmic_wdt->wdt_cmd_offset == len) {
+				pmic_wdt->wdt_cmd_offset = 0;
+				ret = -ETIMEDOUT;
+			}
 		}
+		if (ret)
+			return ret;
 	}
 
-	pmic_wdt->wdt_flag = SPRD_PMIC_WDT_UNLOCK_KEY;
-	mutex_unlock(pmic_wdt->lock);
-	if (nwrite != len || val == SPRD_PMIC_WDT_LOAD_VAULE_HIGH || retry_cnt == RETRY_CNT_MAX)
-		return -ENODEV;
+	if (READ_ONCE(pmic_wdt->stopping))
+		return -ECANCELED;
+	if (test_bit(SBUF_NOTIFY_READY, &pmic_wdt->sbuf_events))
+		return -EAGAIN;
+	WRITE_ONCE(pmic_wdt->wdt_flag, SPRD_PMIC_WDT_UNLOCK_KEY);
+	dev_info(pmic_wdt->dev, "CM4 watchdog commands complete\n");
 
 	return 0;
 }
@@ -233,36 +291,59 @@ static void sprd_pmic_wdt_init(int event, void *data)
 {
 	struct sprd_pmic_wdt *pmic_wdt = data;
 
+	if (READ_ONCE(pmic_wdt->stopping))
+		return;
+
 	switch (event) {
 	case SBUF_NOTIFY_READY:
 		dev_info(pmic_wdt->dev, "sbuf ready for pmic wdt init!\n");
-		pm_wakeup_event(pmic_wdt->dev, PMIC_WDT_WAKE_UP_MS);
-		kthread_queue_work(&pmic_wdt->wdt_kworker, &pmic_wdt->wdt_kwork);
-		pmic_wdt->wdt_flag = 1;
+		set_bit(SBUF_NOTIFY_READY, &pmic_wdt->sbuf_events);
 		break;
 	case SBUF_NOTIFY_READ:
-		if (!pmic_wdt->wdt_flag) {
-			dev_info(pmic_wdt->dev, "sbuf read for pmic wdt init!\n");
-			pm_wakeup_event(pmic_wdt->dev, PMIC_WDT_WAKE_UP_MS);
-			kthread_queue_work(&pmic_wdt->wdt_kworker, &pmic_wdt->wdt_kwork);
-			pmic_wdt->wdt_flag = 1;
-		}
+		if (READ_ONCE(pmic_wdt->wdt_flag) == SPRD_PMIC_WDT_UNLOCK_KEY)
+			return;
 		break;
 	default:
 		return;
 	}
+	pm_wakeup_event(pmic_wdt->dev, PMIC_WDT_WAKE_UP_MS);
+	kthread_queue_delayed_work(&pmic_wdt->wdt_kworker, &pmic_wdt->wdt_kwork, 0);
 }
 
 static void sprd_pmic_wdt_work(struct kthread_work *work)
 {
 	struct sprd_pmic_wdt *pmic_wdt = container_of(work,
 						 struct sprd_pmic_wdt,
-						 wdt_kwork);
+						 wdt_kwork.work);
+	struct task_struct *feed_task = NULL;
+	int ret;
 
-	dev_info(pmic_wdt->dev, "sprd pmic wdt work enter!\n");
+	mutex_lock(pmic_wdt->lock);
+	if (READ_ONCE(pmic_wdt->stopping))
+		goto out;
+	if (test_and_clear_bit(SBUF_NOTIFY_READY, &pmic_wdt->sbuf_events)) {
+		pmic_wdt->wdt_cmd = 0;
+		pmic_wdt->wdt_cmd_offset = 0;
+		WRITE_ONCE(pmic_wdt->wdt_flag, 0);
+	}
+	if (pmic_wdt->wdt_flag == SPRD_PMIC_WDT_UNLOCK_KEY)
+		goto out;
 
-	if (sprd_pmic_wdt_on(pmic_wdt))
-		dev_err(pmic_wdt->dev, "failed to set pmic wdt %d!\n", pmic_wdt->wdten);
+	ret = sprd_pmic_wdt_on(pmic_wdt);
+	if (pmic_wdt->cm4_owned) {
+		feed_task = pmic_wdt->feed_task;
+		pmic_wdt->feed_task = NULL;
+	}
+	if (ret && !READ_ONCE(pmic_wdt->stopping)) {
+		dev_err(pmic_wdt->dev, "CM4 watchdog command %u failed: %d, retrying\n",
+			pmic_wdt->wdt_cmd, ret);
+		kthread_queue_delayed_work(&pmic_wdt->wdt_kworker, &pmic_wdt->wdt_kwork,
+					   msecs_to_jiffies(PMIC_WDT_WAKE_UP_MS));
+	}
+out:
+	mutex_unlock(pmic_wdt->lock);
+	if (feed_task)
+		kthread_stop(feed_task);
 }
 
 static bool sprd_pmic_wdt_en(const char *wdten_name)
@@ -352,17 +433,19 @@ static int sprd_pmic_wdt_load_value(struct sprd_pmic_wdt *pmic_wdt, u32 timeout)
 {
 	u32 val, delay_cnt = 0;
 	u32 tmr_step = timeout * SPRD_PMIC_WDT_CNT_STEP;
+	int ret;
 
 	pr_err("sprd pmic wdt:pmic_timeout %d,feed %d\n", timeout, feed_period);
-	pmic_wdt->wdt_load = jiffies;
 
 	/*
 	 * Waiting the load value operation done,
 	 * it needs two or three RTC clock cycles.
 	 */
 	do {
-		regmap_read(pmic_wdt->regmap, pmic_wdt->base + SPRD_PMIC_WDT_INT_RAW,
-			    &val);
+		ret = regmap_read(pmic_wdt->regmap,
+				  pmic_wdt->base + SPRD_PMIC_WDT_INT_RAW, &val);
+		if (ret)
+			return ret;
 		if (!(val & SPRD_PMIC_WDT_LD_BUSY_BIT))
 			break;
 
@@ -375,11 +458,18 @@ static int sprd_pmic_wdt_load_value(struct sprd_pmic_wdt *pmic_wdt, u32 timeout)
 	}
 
 	sprd_pmic_wdt_unlock(pmic_wdt);
-	regmap_write(pmic_wdt->regmap, pmic_wdt->base + SPRD_PMIC_WDT_LOAD_HIGH,
-		     (tmr_step >> SPRD_PMIC_WDT_CNT_HIGH_SHIFT) & SPRD_PMIC_WDT_LOW_VALUE_MASK);
-	regmap_write(pmic_wdt->regmap, pmic_wdt->base + SPRD_PMIC_WDT_LOAD_LOW,
-		     tmr_step & SPRD_PMIC_WDT_LOW_VALUE_MASK);
+	ret = regmap_write(pmic_wdt->regmap, pmic_wdt->base + SPRD_PMIC_WDT_LOAD_HIGH,
+			   (tmr_step >> SPRD_PMIC_WDT_CNT_HIGH_SHIFT) &
+			   SPRD_PMIC_WDT_LOW_VALUE_MASK);
+	if (ret)
+		goto out_lock;
+	ret = regmap_write(pmic_wdt->regmap, pmic_wdt->base + SPRD_PMIC_WDT_LOAD_LOW,
+			   tmr_step & SPRD_PMIC_WDT_LOW_VALUE_MASK);
+out_lock:
 	sprd_pmic_wdt_lock(pmic_wdt);
+	if (ret)
+		return ret;
+	pmic_wdt->wdt_load = jiffies;
 
 	return 0;
 }
@@ -389,15 +479,23 @@ static int sprd_pmic_wdt_start(struct sprd_pmic_wdt *pmic_wdt)
 	u32 val;
 	int ret;
 
-	sprd_pmic_wdt_load_value(pmic_wdt, pmic_timeout);
+	ret = sprd_pmic_wdt_load_value(pmic_wdt, pmic_timeout);
+	if (ret)
+		return ret;
 	sprd_pmic_wdt_unlock(pmic_wdt);
 	ret = regmap_read(pmic_wdt->regmap, pmic_wdt->base + SPRD_PMIC_WDT_CTRL, &val);
+	if (ret)
+		goto out_lock;
 	val |= SPRD_PMIC_WDT_CNT_EN_BIT | SPRD_PMIC_WDT_RST_EN_BIT;
 	ret = regmap_write(pmic_wdt->regmap, pmic_wdt->base + SPRD_PMIC_WDT_CTRL, val);
-	regmap_read(pmic_wdt->regmap, pmic_wdt->base + SPRD_PMIC_WDT_CTRL, &pmic_wdt->wdt_ctrl);
+	if (ret)
+		goto out_lock;
+	ret = regmap_read(pmic_wdt->regmap, pmic_wdt->base + SPRD_PMIC_WDT_CTRL,
+			  &pmic_wdt->wdt_ctrl);
+out_lock:
 	sprd_pmic_wdt_lock(pmic_wdt);
 
-	return 0;
+	return ret;
 }
 
 static int sprd_pmic_wdt_enable(struct sprd_pmic_wdt *pmic_wdt)
@@ -416,67 +514,85 @@ static int sprd_pmic_wdt_enable(struct sprd_pmic_wdt *pmic_wdt)
 
 	sprd_pmic_wdt_unlock(pmic_wdt);
 	ret = regmap_read(pmic_wdt->regmap, pmic_wdt->base + SPRD_PMIC_WDT_CTRL, &val);
+	if (ret)
+		goto out_lock;
 	val |= SPRD_PMIC_WDT_NEW_VER_EN;
 	ret = regmap_write(pmic_wdt->regmap, pmic_wdt->base + SPRD_PMIC_WDT_CTRL, val);
+out_lock:
 	sprd_pmic_wdt_lock(pmic_wdt);
+	if (ret)
+		return ret;
 	pmic_wdt->wdt_enabled = 1;
 
 	return 0;
 }
 
-static void pmic_wdt_kick(struct sprd_pmic_wdt *pmic_wdt)
+static int pmic_wdt_kick(struct sprd_pmic_wdt *pmic_wdt)
 {
-	sprd_pmic_wdt_load_value(pmic_wdt, pmic_timeout);
+	u32 val;
+	int ret;
+
+	ret = regmap_read(pmic_wdt->regmap, pmic_wdt->base + SPRD_PMIC_WDT_LOAD_HIGH,
+			  &val);
+	if (ret)
+		return ret;
+	if (val != SPRD_PMIC_WDT_LOAD_VAULE_HIGH)
+		return 0;
+
+	return sprd_pmic_wdt_load_value(pmic_wdt, pmic_timeout);
 }
 
 static int sprd_wdt_feeder(void *data)
 {
 	struct sprd_pmic_wdt *pmic_wdt = data;
+	unsigned long delay;
+	int ret;
 
-	do {
-		if (kthread_should_stop())
-			break;
-
-		if (pmic_wdt->wdt_enabled && !pmic_wdt->wdt_flag)
-			pmic_wdt_kick(pmic_wdt);
+	while (!kthread_should_stop()) {
+		delay = feed_period * HZ;
+		mutex_lock(pmic_wdt->lock);
+		if (pmic_wdt->wdt_enabled && !pmic_wdt->cm4_owned &&
+		    !READ_ONCE(pmic_wdt->stopping)) {
+			ret = pmic_wdt_kick(pmic_wdt);
+			if (ret) {
+				dev_err_ratelimited(pmic_wdt->dev, "failed to feed pmic wdt: %d\n",
+						    ret);
+				delay = msecs_to_jiffies(PMIC_WDT_WAKE_UP_MS);
+			}
+		}
+		mutex_unlock(pmic_wdt->lock);
 
 		set_current_state(TASK_INTERRUPTIBLE);
-		schedule_timeout(feed_period * HZ);
-	} while (1);
+		if (!kthread_should_stop())
+			schedule_timeout(delay);
+		__set_current_state(TASK_RUNNING);
+	}
 
 	return 0;
 }
 
-static void sprd_wdt_feeder_init(struct sprd_pmic_wdt *pmic_wdt)
+static int sprd_wdt_feeder_init(struct sprd_pmic_wdt *pmic_wdt)
 {
 	int cpu = 0;
+	int ret;
 
-	mutex_lock(pmic_wdt->lock);
-	if (pmic_wdt->wdt_flag == SPRD_PMIC_WDT_UNLOCK_KEY) {
-		mutex_unlock(pmic_wdt->lock);
-		return;
-	}
-
-	do {
-		pmic_wdt->feed_task = kthread_create_on_node(sprd_wdt_feeder,
-							    pmic_wdt,
-							    cpu_to_node(cpu),
-							    "watchdog_feeder/%d",
-							    cpu);
-
-		kthread_bind(pmic_wdt->feed_task, cpu);
-	} while (0);
-
+	pmic_wdt->feed_task = kthread_create_on_node(sprd_wdt_feeder, pmic_wdt,
+						    cpu_to_node(cpu), "watchdog_feeder/%d", cpu);
 	if (IS_ERR(pmic_wdt->feed_task)) {
-		pr_err("Can't crate watchdog_feeder thread!\n");
-	} else {
-		sprd_pmic_wdt_start(pmic_wdt);
-		wake_up_process(pmic_wdt->feed_task);
+		ret = PTR_ERR(pmic_wdt->feed_task);
+		pmic_wdt->feed_task = NULL;
+		return ret;
 	}
 
-	mutex_unlock(pmic_wdt->lock);
+	kthread_bind(pmic_wdt->feed_task, cpu);
+	ret = sprd_pmic_wdt_start(pmic_wdt);
+	if (ret)
+		return ret;
+	wake_up_process(pmic_wdt->feed_task);
 
 	pr_err("sprd pmic wdt:pmic_timeout %d,feed %d\n", pmic_timeout, feed_period);
+
+	return 0;
 }
 #endif
 
@@ -486,6 +602,9 @@ static int sprd_pmic_wdt_probe(struct platform_device *pdev)
 	struct device_node *node = pdev->dev.of_node;
 	struct sprd_pmic_wdt *pmic_wdt;
 	struct sched_param param = { .sched_priority = MAX_RT_PRIO - 1 };
+#ifndef CONFIG_SPRD_DEBUG
+	u32 val, ctrl, rtc;
+#endif
 
 	pmic_wdt = devm_kzalloc(&pdev->dev, sizeof(*pmic_wdt), GFP_KERNEL);
 	if (!pmic_wdt)
@@ -520,7 +639,7 @@ static int sprd_pmic_wdt_probe(struct platform_device *pdev)
 	}
 
 	kthread_init_worker(&pmic_wdt->wdt_kworker);
-	kthread_init_work(&pmic_wdt->wdt_kwork, sprd_pmic_wdt_work);
+	kthread_init_delayed_work(&pmic_wdt->wdt_kwork, sprd_pmic_wdt_work);
 	pmic_wdt->wdt_thread = kthread_run(kthread_worker_fn, &pmic_wdt->wdt_kworker,
 					   "pmic_wdt_worker");
 	if (IS_ERR(pmic_wdt->wdt_thread)) {
@@ -540,29 +659,73 @@ static int sprd_pmic_wdt_probe(struct platform_device *pdev)
 	if (rval) {
 		dev_err(&pdev->dev, "sbuf notifier failed rval = %d\n", rval);
 		ret = -EPROBE_DEFER; //depends on UNISOC_SIPC_SPIPE for SP9863-GO
+		WRITE_ONCE(pmic_wdt->stopping, true);
 		goto err_stop_worker;
 	}
 
+	mutex_lock(pmic_wdt->lock);
 #ifndef CONFIG_SPRD_DEBUG
 	pmic_wdt->normal_mode = sprd_pmic_wdt_get_normal_mode();
-	if (pmic_wdt->normal_mode && !pmic_wdt->wdt_flag) {
+	if (pmic_wdt->normal_mode && !pmic_wdt->cm4_owned &&
+	    !sbuf_status(SIPC_ID_PM_SYS, SMSG_CH_TTY)) {
+		ret = regmap_read(pmic_wdt->regmap,
+				  pmic_wdt->base + SPRD_PMIC_WDT_LOAD_HIGH, &val);
+		if (ret)
+			goto err_ownership;
+		ret = regmap_read(pmic_wdt->regmap,
+				  pmic_wdt->base + SPRD_PMIC_WDT_CTRL, &ctrl);
+		if (ret)
+			goto err_ownership;
+		ret = regmap_read(pmic_wdt->regmap, pmic_wdt->data->wdt_rtc_eb_reg, &rtc);
+		if (ret)
+			goto err_ownership;
+		if (val != SPRD_PMIC_WDT_LOAD_VAULE_HIGH &&
+		    (ctrl & SPRD_PMIC_WDT_CNT_EN_BIT) &&
+		    (rtc & pmic_wdt->data->wdt_rtc_en) &&
+		    ((ctrl & SPRD_PMIC_WDT_RST_EN_BIT) || !pmic_wdt->wdten))
+			goto out_probe;
+	}
+	if (pmic_wdt->normal_mode && !pmic_wdt->cm4_owned) {
 		ret = sprd_pmic_wdt_enable(pmic_wdt);
 		if (ret) {
-			dev_err(&pdev->dev, "failed to enable wdt\n");
-			sbuf_unregister_notifier(SIPC_ID_PM_SYS, SMSG_CH_TTY, 0);
-			goto err_stop_worker;
+			dev_err(&pdev->dev, "failed to enable wdt: %d\n", ret);
+			goto err_unregister;
 		}
-		sprd_wdt_feeder_init(pmic_wdt);
+		ret = sprd_wdt_feeder_init(pmic_wdt);
+		if (ret) {
+			dev_err(&pdev->dev, "failed to start wdt feeder: %d\n", ret);
+			goto err_unregister;
+		}
 	}
+out_probe:
 #endif
 
 	platform_set_drvdata(pdev, pmic_wdt);
+	mutex_unlock(pmic_wdt->lock);
 
 	return 0;
 
+#ifndef CONFIG_SPRD_DEBUG
+err_ownership:
+	dev_err(&pdev->dev, "failed to read wdt ownership: %d\n", ret);
+	ret = -EPROBE_DEFER;
+err_unregister:
+	WRITE_ONCE(pmic_wdt->stopping, true);
+	mutex_unlock(pmic_wdt->lock);
+	rval = sbuf_unregister_notifier(SIPC_ID_PM_SYS, SMSG_CH_TTY, 0);
+	if (rval)
+		dev_err(&pdev->dev, "sbuf unregister notifier failed: %d\n", rval);
+#endif
 err_stop_worker:
+	kthread_cancel_delayed_work_sync(&pmic_wdt->wdt_kwork);
 	kthread_flush_worker(&pmic_wdt->wdt_kworker);
 	kthread_stop(pmic_wdt->wdt_thread);
+#ifndef CONFIG_SPRD_DEBUG
+	if (pmic_wdt->feed_task) {
+		kthread_stop(pmic_wdt->feed_task);
+		pmic_wdt->feed_task = NULL;
+	}
+#endif
 err_wakeup:
 	device_init_wakeup(pmic_wdt->dev, false);
 	return ret;
@@ -573,10 +736,12 @@ static int sprd_pmic_wdt_remove(struct platform_device *pdev)
 	struct sprd_pmic_wdt *pmic_wdt = dev_get_drvdata(&pdev->dev);
 	int rval;
 
+	WRITE_ONCE(pmic_wdt->stopping, true);
 	rval = sbuf_unregister_notifier(SIPC_ID_PM_SYS, SMSG_CH_TTY, 0);
 	if (rval)
 		dev_err(&pdev->dev, "sbuf unregitster notifier failed rval = %d\n", rval);
 
+	kthread_cancel_delayed_work_sync(&pmic_wdt->wdt_kwork);
 	kthread_flush_worker(&pmic_wdt->wdt_kworker);
 	kthread_stop(pmic_wdt->wdt_thread);
 
