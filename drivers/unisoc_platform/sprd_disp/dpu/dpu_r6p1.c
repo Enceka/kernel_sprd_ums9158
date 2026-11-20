@@ -2584,9 +2584,7 @@ static int dpu_context_init(struct dpu_context *ctx, struct device *dev)
 	ctx->base_offset[0] = 0x0;
 	ctx->base_offset[1] = DPU_MAX_REG_OFFSET / 4;
 
-	ctx->wb_configed = true;
-	if (ctx->wb_configed)
-                ctx->evt_wb_done = true;
+	ctx->wb_configed = false;
 
 	/* Allocate memory for trusty */
 	ctx->tos_msg = devm_kzalloc(dev, sizeof(struct disp_message) + sizeof(struct layer_reg), GFP_KERNEL);
