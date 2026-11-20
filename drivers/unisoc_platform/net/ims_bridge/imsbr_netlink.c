@@ -81,39 +81,37 @@ imsbr_do_call_state(struct sk_buff *skb, struct genl_info *info)
 
 static int imsbr_sync_esq_seq(void)
 {
-	int i;
-	u32 esp_num = 0;
+	struct {
+		u32 count;
+		struct espheader entries[MAX_ESPS];
+	} esp_info;
 	struct sblock blk;
-	char *esp_info;
 	size_t len;
-	char *tmp;
+	int i;
 
+	BUILD_BUG_ON(sizeof(esp_info) > IMSBR_MSG_MAXLEN);
+	esp_info.count = 0;
+	/* Generic Netlink serializes SPI add/delete with low-power handling. */
 	for (i = 0; i < MAX_ESPS; i++) {
-		if (esphs[i].spi)
-			esp_num++;
+		struct espheader *entry = &esp_info.entries[esp_info.count];
+		u32 spi = esphs[i].spi;
+
+		if (!spi)
+			continue;
+
+		entry->spi = spi;
+		entry->seq = READ_ONCE(esphs[i].seq);
+		esp_info.count++;
+		pr_info("spi %x seq %d\n", entry->spi, entry->seq);
 	}
 
-	if (!esp_num) {
+	if (!esp_info.count) {
 		pr_err("no esp info recorded\n");
 		return -EINVAL;
 	}
 
-	len = sizeof(unsigned int) + esp_num * sizeof(struct espheader);
-	esp_info = kmalloc(len, GFP_KERNEL);
-
-	memcpy(esp_info, &esp_num, sizeof(unsigned int));
-
-	tmp = esp_info + sizeof(unsigned int);
-
-	for (i = 0; i < MAX_ESPS; i++) {
-		if (esphs[i].spi) {
-			memcpy(tmp + sizeof(struct espheader) * i,
-			       &esphs[i], sizeof(struct espheader));
-			pr_info("spi %x seq %d\n", esphs[i].spi, esphs[i].seq);
-		}
-	}
-
-	if (!imsbr_build_cmd("ap-sync-esp", &blk, esp_info, len))
+	len = sizeof(esp_info.count) + esp_info.count * sizeof(esp_info.entries[0]);
+	if (!imsbr_build_cmd("ap-sync-esp", &blk, &esp_info, len))
 		imsbr_sblock_send(&imsbr_ctrl, &blk, len);
 
 	return 0;

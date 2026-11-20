@@ -417,17 +417,31 @@ static void imsbr_cptuple_update(struct imsbr_msghdr *msg, unsigned long add)
 
 static void imsbr_cp_sync_esp(struct imsbr_msghdr *msg, unsigned long unused)
 {
+	const struct espheader *entries;
+	struct espheader entry;
+	u32 esp_num;
 	int i, j;
-	struct espheader *esph =
-		(struct espheader *)(msg->imsbr_payload + sizeof(unsigned int));
-	unsigned int esp_num = *((unsigned int *)msg->imsbr_payload);
+
+	if (msg->imsbr_paylen < sizeof(esp_num)) {
+		pr_err("ESP sync payload is too short: %u\n", msg->imsbr_paylen);
+		return;
+	}
+
+	unalign_memcpy(&esp_num, msg->imsbr_payload, sizeof(esp_num));
+	if (esp_num > MAX_ESPS ||
+	    esp_num > (msg->imsbr_paylen - sizeof(esp_num)) / sizeof(entry)) {
+		pr_err("invalid ESP count %u for payload length %u\n",
+		       esp_num, msg->imsbr_paylen);
+		return;
+	}
+
+	entries = (const struct espheader *)(msg->imsbr_payload + sizeof(esp_num));
 
 	for (i = 0; i < esp_num; i++) {
-		esph = (struct espheader *)((char *)esph +
-			sizeof(*esph) * i);
+		unalign_memcpy(&entry, &entries[i], sizeof(entry));
 		for (j = 0; j < MAX_ESPS; j++) {
-			if (esphs[j].spi == esph->spi) {
-				esphs[j].seq = esph->seq;
+			if (READ_ONCE(esphs[j].spi) == entry.spi) {
+				WRITE_ONCE(esphs[j].seq, entry.seq);
 				break;
 			}
 		}
