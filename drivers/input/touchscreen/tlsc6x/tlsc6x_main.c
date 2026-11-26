@@ -75,6 +75,8 @@
 #include "tlsc6x_main.h"
 #ifdef TLSC_GESTRUE
 #define TLSC_GESTURE_DOUBLE_TAP 0x24
+static bool tlsc6x_double_tap_wake_enabled;
+module_param_named(double_tap_wake, tlsc6x_double_tap_wake_enabled, bool, 0644);
 #endif
 
 #define	TOUCH_VIRTUAL_KEYS
@@ -748,22 +750,24 @@ int tlsc6x_do_suspend(void)
 #endif
 
 #ifdef TLSC_GESTRUE
-	ret = tlsc6x_load_gesture_binlib();
-	if (!ret) {
-		ret = tlsc6x_i2c_write(this_client, gesture_command,
-				sizeof(gesture_command));
+	if (tlsc6x_double_tap_wake_enabled) {
+		ret = tlsc6x_load_gesture_binlib();
+		if (!ret) {
+			ret = tlsc6x_i2c_write(this_client, gesture_command,
+					sizeof(gesture_command));
+		}
+		if (!ret) {
+			ret = enable_irq_wake(this_client->irq);
+		}
+		if (!ret) {
+			tlsc6x_gesture_wake_armed = true;
+			g_tp_drvdata->suspended = true;
+			mutex_unlock(&g_tp_drvdata->action_mutex);
+			tlsc_info("gesture wake mode enabled\n");
+			return 0;
+		}
+		tlsc_err("gesture wake setup failed: %d, falling back to deep suspend\n", ret);
 	}
-	if (!ret) {
-		ret = enable_irq_wake(this_client->irq);
-	}
-	if (!ret) {
-		tlsc6x_gesture_wake_armed = true;
-		g_tp_drvdata->suspended = true;
-		mutex_unlock(&g_tp_drvdata->action_mutex);
-		tlsc_info("gesture wake mode enabled\n");
-		return 0;
-	}
-	tlsc_err("gesture wake setup failed: %d, falling back to deep suspend\n", ret);
 #endif
 
 	tlsc_irq_disable();
