@@ -76,7 +76,23 @@
 #ifdef TLSC_GESTRUE
 #define TLSC_GESTURE_DOUBLE_TAP 0x24
 static bool tlsc6x_double_tap_wake_enabled;
-module_param_named(double_tap_wake, tlsc6x_double_tap_wake_enabled, bool, 0644);
+static bool tlsc6x_gesture_wake_armed;
+/* The source Power HAL supplies screen state on DRM-only devices that have
+ * no FB/ADF notification path into this standalone touch driver. */
+static bool tlsc6x_interactive = true;
+static int tlsc6x_set_interactive(const char *val, const struct kernel_param *kp);
+static int tlsc6x_set_double_tap_wake(const char *val, const struct kernel_param *kp);
+static const struct kernel_param_ops tlsc6x_interactive_ops = {
+	.set = tlsc6x_set_interactive,
+	.get = param_get_bool,
+};
+static const struct kernel_param_ops tlsc6x_double_tap_wake_ops = {
+	.set = tlsc6x_set_double_tap_wake,
+	.get = param_get_bool,
+};
+module_param_cb(interactive, &tlsc6x_interactive_ops, &tlsc6x_interactive, 0644);
+module_param_cb(double_tap_wake, &tlsc6x_double_tap_wake_ops,
+		&tlsc6x_double_tap_wake_enabled, 0644);
 #endif
 
 #define	TOUCH_VIRTUAL_KEYS
@@ -659,18 +675,22 @@ static irqreturn_t touch_event_thread_handler(int irq, void *devid)
 {
 	struct tlsc6x_data *data = i2c_get_clientdata(this_client);
 #ifdef TLSC_GESTRUE
-	u8 gesture_data[4] = { 0 };
+	u8 gesture_reg = 0xd3;
+	u8 gesture_code = 0;
 
 	if (data->suspended) {
-		if (tlsc6x_read_bytes_u16addr(this_client, 0x00d3,
-				gesture_data, sizeof(gesture_data)) == 0
-				&& gesture_data[0] == TLSC_GESTURE_DOUBLE_TAP) {
+		if (!tlsc6x_gesture_wake_armed)
+			return IRQ_HANDLED;
+		/* Gesture firmware reports the gesture code in register D3. */
+		if (tlsc6x_i2c_read(this_client, &gesture_reg, 1,
+				&gesture_code, 1) == 2 &&
+		    gesture_code == TLSC_GESTURE_DOUBLE_TAP) {
 			input_report_key(data->input_dev, KEY_WAKEUP, 1);
 			input_sync(data->input_dev);
 			input_report_key(data->input_dev, KEY_WAKEUP, 0);
 			input_sync(data->input_dev);
 			pm_wakeup_event(&this_client->dev, 500);
-			tlsc_info("gesture wake event: 0x%02x\n", gesture_data[0]);
+			tlsc_info("gesture wake event: 0x%02x\n", gesture_code);
 		}
 		return IRQ_HANDLED;
 	}
@@ -722,10 +742,6 @@ void tlsc6x_tpd_reset(void)
 }
 
 unsigned char real_suspend_flag = 0;
-#ifdef TLSC_GESTRUE
-static bool tlsc6x_gesture_wake_armed;
-#endif
-
 int tlsc6x_do_suspend(void)
 {
 	int ret = -1;
@@ -756,10 +772,14 @@ int tlsc6x_do_suspend(void)
 
 #ifdef TLSC_GESTRUE
 	if (tlsc6x_double_tap_wake_enabled) {
-		ret = tlsc6x_load_gesture_binlib();
+		/* The bundled gesture binlib targets 3535 only; the 3536
+		 * resident firmware provides gesture mode by itself. */
+		ret = g_mccode == 1 ? 0 : tlsc6x_load_gesture_binlib();
 		if (!ret) {
 			ret = tlsc6x_i2c_write(this_client, gesture_command,
 					sizeof(gesture_command));
+			/* i2c_transfer returns one completed message on success. */
+			ret = ret == 1 ? 0 : (ret < 0 ? ret : -EIO);
 		}
 		if (!ret) {
 			ret = enable_irq_wake(this_client->irq);
@@ -898,6 +918,34 @@ static void tlsc6x_resume_work(struct work_struct *work)
 
 	mutex_unlock(&g_tp_drvdata->action_mutex);
 }
+
+#ifdef TLSC_GESTRUE
+static int tlsc6x_set_interactive(const char *val, const struct kernel_param *kp)
+{
+	int ret = param_set_bool(val, kp);
+
+	if (ret || !g_tp_drvdata || !g_tp_drvdata->tlsc_workqueue)
+		return ret;
+	if (tlsc6x_interactive)
+		return tlsc6x_do_resume();
+	/* Finish a previously queued resume before entering low-power mode. */
+	flush_work(&g_tp_drvdata->resume_work);
+	return tlsc6x_do_suspend();
+}
+
+static int tlsc6x_set_double_tap_wake(const char *val, const struct kernel_param *kp)
+{
+	int ret = param_set_bool(val, kp);
+
+	if (ret || tlsc6x_interactive || !g_tp_drvdata ||
+		!g_tp_drvdata->tlsc_workqueue)
+		return ret;
+	/* Apply setting changes while the display is already inactive too. */
+	tlsc6x_do_resume();
+	flush_work(&g_tp_drvdata->resume_work);
+	return tlsc6x_do_suspend();
+}
+#endif
 
 #if defined(CONFIG_ADF)
 /*
