@@ -41,7 +41,7 @@
  */
 /* #define TLSC_AUTO_UPGRADE */
 #define TLSC_ESD_HELPER_EN	/* esd helper, close:undef */
-/* #define TLSC_GESTRUE */
+#define TLSC_GESTRUE
 #define TLSC_TP_PROC_SELF_TEST
 
 /* #define TLSC_BUILDIN_BOOT */

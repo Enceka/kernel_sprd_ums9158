@@ -64,6 +64,7 @@
 
 #include <linux/suspend.h>
 #include <linux/irq.h>
+#include <linux/pm_wakeup.h>
 
 #ifdef MMI_TP_VERSION
 #include <linux/string.h>
@@ -72,6 +73,9 @@
 #include <linux/version.h>
 
 #include "tlsc6x_main.h"
+#ifdef TLSC_GESTRUE
+#define TLSC_GESTURE_DOUBLE_TAP 0x24
+#endif
 
 #define	TOUCH_VIRTUAL_KEYS
 #define	MULTI_PROTOCOL_TYPE_B	1
@@ -646,9 +650,23 @@ static int tlsc6x_update_data(void)
 
 static irqreturn_t touch_event_thread_handler(int irq, void *devid)
 {
-
-#ifdef CONFIG_TLSC_POINT_REPORT_CHECK
 	struct tlsc6x_data *data = i2c_get_clientdata(this_client);
+#ifdef TLSC_GESTRUE
+	u8 gesture_data[4] = { 0 };
+
+	if (data->suspended) {
+		if (tlsc6x_read_bytes_u16addr(this_client, 0x00d3,
+				gesture_data, sizeof(gesture_data)) == 0
+				&& gesture_data[0] == TLSC_GESTURE_DOUBLE_TAP) {
+			input_report_key(data->input_dev, KEY_WAKEUP, 1);
+			input_sync(data->input_dev);
+			input_report_key(data->input_dev, KEY_WAKEUP, 0);
+			input_sync(data->input_dev);
+			pm_wakeup_event(&this_client->dev, 500);
+			tlsc_info("gesture wake event: 0x%02x\n", gesture_data[0]);
+		}
+		return IRQ_HANDLED;
+	}
 #endif
 
 	if (tpd_cdev->bbat_test_enter) {
@@ -697,10 +715,16 @@ void tlsc6x_tpd_reset(void)
 }
 
 unsigned char real_suspend_flag = 0;
+#ifdef TLSC_GESTRUE
+static bool tlsc6x_gesture_wake_armed;
+#endif
 
 int tlsc6x_do_suspend(void)
 {
 	int ret = -1;
+#ifdef TLSC_GESTRUE
+	u8 gesture_command[2] = { 0xd0, 0x01 };
+#endif
 
 	TLSC_FUNC_ENTER();
 	if (g_tp_drvdata->suspended) {
@@ -721,6 +745,25 @@ int tlsc6x_do_suspend(void)
 		mutex_unlock(&g_tp_drvdata->action_mutex);
 		return 0;
 	}
+#endif
+
+#ifdef TLSC_GESTRUE
+	ret = tlsc6x_load_gesture_binlib();
+	if (!ret) {
+		ret = tlsc6x_i2c_write(this_client, gesture_command,
+				sizeof(gesture_command));
+	}
+	if (!ret) {
+		ret = enable_irq_wake(this_client->irq);
+	}
+	if (!ret) {
+		tlsc6x_gesture_wake_armed = true;
+		g_tp_drvdata->suspended = true;
+		mutex_unlock(&g_tp_drvdata->action_mutex);
+		tlsc_info("gesture wake mode enabled\n");
+		return 0;
+	}
+	tlsc_err("gesture wake setup failed: %d, falling back to deep suspend\n", ret);
 #endif
 
 	tlsc_irq_disable();
@@ -805,6 +848,13 @@ static void tlsc6x_resume_work(struct work_struct *work)
 		return;
 	}
 	mutex_lock(&g_tp_drvdata->action_mutex);
+
+#ifdef TLSC_GESTRUE
+	if (tlsc6x_gesture_wake_armed) {
+		disable_irq_wake(this_client->irq);
+		tlsc6x_gesture_wake_armed = false;
+	}
+#endif
 
 	tlsc6x_tpd_reset();
 
@@ -1857,6 +1907,7 @@ static int tlsc6x_probe(struct i2c_client *client, const struct i2c_device_id *i
 	__set_bit(KEY_MENU, input_dev->keybit);
 	__set_bit(KEY_BACK, input_dev->keybit);
 	__set_bit(KEY_HOMEPAGE, input_dev->keybit);
+	__set_bit(KEY_WAKEUP, input_dev->keybit);
 	__set_bit(BTN_TOUCH, input_dev->keybit);
 	__set_bit(INPUT_PROP_DIRECT, input_dev->propbit);
 
@@ -1953,6 +2004,7 @@ static int tlsc6x_probe(struct i2c_client *client, const struct i2c_device_id *i
 	}
 
 	mutex_init(&g_tp_drvdata->action_mutex);
+	device_init_wakeup(&client->dev, true);
 #ifdef CONFIG_PM_WAKELOCKS
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
 	tlsc6x_wakelock = wakeup_source_register(NULL, "tlsc6x_wakelock");

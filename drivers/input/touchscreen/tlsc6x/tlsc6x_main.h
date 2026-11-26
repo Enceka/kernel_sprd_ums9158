@@ -145,6 +145,7 @@ extern int tlsc6x_set_nor_mode(void);
 
 extern int tlsc6x_write_reg(struct i2c_client *client, u8 regaddr, u8 regvalue);
 extern int tlsc6x_read_reg(struct i2c_client *client, u8 regaddr, u8 *regvalue);
+extern int tlsc6x_read_bytes_u16addr(struct i2c_client *client, u16 addr, u8 *rxbuf, u16 len);
 extern int tlsc6x_i2c_read(struct i2c_client *client, char *writebuf, int writelen, char *readbuf, int readlen);
 extern int tlsc6x_i2c_write(struct i2c_client *client, char *writebuf, int writelen);
 extern int tlsc6x_i2c_read_sub(struct i2c_client *client, char *writebuf, int writelen, char *readbuf, int readlen);
