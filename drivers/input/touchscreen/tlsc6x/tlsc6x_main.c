@@ -572,6 +572,11 @@ static int tlsc6x_update_data(void)
 			/*tlsc_info("%s:abnormal value %d -> 0x%x\n", __func__, i, buf[6 * i + 3]);*/
 			continue;
 		}
+		/* The first interrupt after a controller reset carries an
+		 * all-zero packet; do not report it as a touch at (0,0). */
+		if (!memchr_inv(&buf[6 * i + 3], 0, 6)) {
+			continue;
+		}
 		x = (s16) (buf[6 * i + 3] & 0x0F) << 8 | (s16) buf[6 * i + 4];
 		y = (s16) (buf[6 * i + 5] & 0x0F) << 8 | (s16) buf[6 * i + 6];
 		ft_pressure = buf[6 * i + 7];
