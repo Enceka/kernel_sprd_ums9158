@@ -28,19 +28,95 @@
 					sprd,dsi-lane-number = <0x01>;
 					sprd,dsi-work-mode = <0x01>;
 
-					display-timings {
-						native-mode = <&sprd_st7365p_timing0>;
+					sprd,vrr-enabled;
 
-						sprd_st7365p_timing0: timing0 {
-							vsync-len = <0x08>;
-							hsync-len = <0x14>;
-							vfront-porch = <0x0a>;
-							vback-porch = <0x0a>;
-							hfront-porch = <0x5f>;
-							hback-porch = <0x5f>;
-							vactive = <0x1e0>;
-							hactive = <0x140>;
+					display-timings {
+						native-mode = <&sprd_st7365p_73hz>;
+
+						/* All modes share one line timing so the DPU can switch rate by
+						 * rewriting VFP only: 16 MHz, 436 clocks per line (hfp/hbp 48,
+						 * hsync 20), vsync 8, vbp 7. Refresh = 16e6 / (436 * (495 + vfp)).
+						 * hfp/hbp 45 (74 Hz) and 42 (75 Hz) flicker on this panel; 48 is
+						 * the smallest stable value. Stock was 530 x 508 (59.43 Hz).
+						 * Applying the overlay reverses the child order, and the driver adds
+						 * the native mode plus every child but the last one it sees, so the
+						 * native 73 Hz timing must stay first here. */
+						sprd_st7365p_73hz: timing0 {
+							/* 72.96 Hz */
 							clock-frequency = <0xf42400>;
+							hactive = <0x140>;
+							vactive = <0x1e0>;
+							hfront-porch = <0x30>;
+							hback-porch = <0x30>;
+							hsync-len = <0x14>;
+							vfront-porch = <0x08>;
+							vback-porch = <0x07>;
+							vsync-len = <0x08>;
+						};
+
+						sprd_st7365p_72hz: timing1 {
+							/* 71.96 Hz */
+							clock-frequency = <0xf42400>;
+							hactive = <0x140>;
+							vactive = <0x1e0>;
+							hfront-porch = <0x30>;
+							hback-porch = <0x30>;
+							hsync-len = <0x14>;
+							vfront-porch = <0x0f>;
+							vback-porch = <0x07>;
+							vsync-len = <0x08>;
+						};
+
+						sprd_st7365p_70hz: timing2 {
+							/* 70.03 Hz */
+							clock-frequency = <0xf42400>;
+							hactive = <0x140>;
+							vactive = <0x1e0>;
+							hfront-porch = <0x30>;
+							hback-porch = <0x30>;
+							hsync-len = <0x14>;
+							vfront-porch = <0x1d>;
+							vback-porch = <0x07>;
+							vsync-len = <0x08>;
+						};
+
+						sprd_st7365p_65hz: timing3 {
+							/* 64.95 Hz */
+							clock-frequency = <0xf42400>;
+							hactive = <0x140>;
+							vactive = <0x1e0>;
+							hfront-porch = <0x30>;
+							hback-porch = <0x30>;
+							hsync-len = <0x14>;
+							vfront-porch = <0x46>;
+							vback-porch = <0x07>;
+							vsync-len = <0x08>;
+						};
+
+						sprd_st7365p_60hz: timing4 {
+							/* 59.96 Hz */
+							clock-frequency = <0xf42400>;
+							hactive = <0x140>;
+							vactive = <0x1e0>;
+							hfront-porch = <0x30>;
+							hback-porch = <0x30>;
+							hsync-len = <0x14>;
+							vfront-porch = <0x75>;
+							vback-porch = <0x07>;
+							vsync-len = <0x08>;
+						};
+
+						sprd_st7365p_59hz: timing5 {
+							/* 59.48 Hz */
+							clock-frequency = <0xf42400>;
+							hactive = <0x140>;
+							vactive = <0x1e0>;
+							hfront-porch = <0x30>;
+							hback-porch = <0x30>;
+							hsync-len = <0x14>;
+							vfront-porch = <0x7a>;
+							vback-porch = <0x07>;
+							vsync-len = <0x08>;
 						};
 					};
 				};
