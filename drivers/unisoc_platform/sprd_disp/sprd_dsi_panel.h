@@ -134,6 +134,7 @@ struct sprd_panel {
 	struct backlight_device *oled_bdev;
 	bool sprd_bl_mipi_type;
 	struct regulator *supply;
+	bool supply_enabled;
 	struct delayed_work esd_work;
 	bool esd_work_pending;
 	struct mutex lock;

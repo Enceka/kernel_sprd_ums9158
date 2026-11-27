@@ -108,6 +108,21 @@ int sprd_panel_send_vrefresh_cmd(struct sprd_panel *panel, int index)
 	return 0;
 }
 
+static void sprd_panel_disable_supply(struct sprd_panel *panel)
+{
+	int ret;
+
+	/* The bootloader can leave the panel on before our first prepare. */
+	if (!panel->supply_enabled)
+		return;
+
+	ret = regulator_disable(panel->supply);
+	if (ret)
+		DRM_ERROR("disable lcd regulator failed: %d\n", ret);
+	else
+		panel->supply_enabled = false;
+}
+
 static int sprd_panel_unprepare(struct drm_panel *p)
 {
 	struct sprd_panel *panel = to_sprd_panel(p);
@@ -153,7 +168,7 @@ static int sprd_panel_unprepare(struct drm_panel *p)
 	
 	if(gesture_flow){
 		pr_err("ILITEK,OMNIVISION,CTS,Gesture, Power No Operation!\n");
-		regulator_disable(panel->supply);
+		sprd_panel_disable_supply(panel);
 		return 0;
 	}
 	
@@ -188,7 +203,7 @@ static int sprd_panel_unprepare(struct drm_panel *p)
 			mdelay(15);
 		}
 
-		regulator_disable(panel->supply);
+		sprd_panel_disable_supply(panel);
 	}
 
 	return 0;
@@ -266,9 +281,13 @@ static int sprd_panel_prepare(struct drm_panel *p)
 			}
 		}
 	} else {
-		ret = regulator_enable(panel->supply);
-		if (ret < 0)
-			DRM_ERROR("enable lcd regulator failed\n");
+		if (!panel->supply_enabled) {
+			ret = regulator_enable(panel->supply);
+			if (ret)
+				DRM_ERROR("enable lcd regulator failed: %d\n", ret);
+			else
+				panel->supply_enabled = true;
+		}
 
 		if (panel->info.avdd_gpio) {
 			gpiod_direction_output(panel->info.avdd_gpio, 1);
