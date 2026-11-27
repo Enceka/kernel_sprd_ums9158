@@ -80,6 +80,7 @@ static bool tlsc6x_gesture_wake_armed;
 /* The source Power HAL supplies screen state on DRM-only devices that have
  * no FB/ADF notification path into this standalone touch driver. */
 static bool tlsc6x_interactive = true;
+static bool tlsc6x_ready;
 static int tlsc6x_set_interactive(const char *val, const struct kernel_param *kp);
 static int tlsc6x_set_double_tap_wake(const char *val, const struct kernel_param *kp);
 static const struct kernel_param_ops tlsc6x_interactive_ops = {
@@ -131,18 +132,17 @@ static void tlsc6x_ts_resume(struct early_suspend *handler);
 #endif
 
 #ifdef TLSC_ESD_HELPER_EN
-static int tpd_esd_flag = 0;
+static int tpd_esd_flag;
 static struct hrtimer tpd_esd_kthread_timer;
+static struct task_struct *tlsc6x_esd_task;
 static DECLARE_WAIT_QUEUE_HEAD(tpd_esd_waiter);
 #endif
 
-#ifdef TLSC_TPD_PROXIMITY
-static int tlsc6x_prox_ctrl(int enable);
-unsigned char tpd_prox_old_state = 0;
-int tpd_prox_active = 0;
-static struct class *sprd_tpd_class;
-static struct device *sprd_ps_cmd_dev;
-#endif
+#define TLSC_PROX_ENABLE_REG 0xb0
+#define TLSC_PROX_NEAR 0xc0
+#define TLSC_PROX_FAR 0xe0
+#define TLSC_PROX_HANDLE 108
+#define TLSC_PROX_SETTLE_MS 60
 
 #ifdef TOUCH_VIRTUAL_KEYS
 
@@ -178,19 +178,21 @@ static struct attribute_group properties_attr_group = {
 	.attrs = properties_attrs,
 };
 
+static struct kobject *properties_kobj;
+
 static void tlsc6x_virtual_keys_init(void)
 {
 	int ret = 0;
-	struct kobject *properties_kobj;
 
 	TLSC_FUNC_ENTER();
 
 	properties_kobj = kobject_create_and_add("board_properties", NULL);
-	if (properties_kobj) {
+	if (properties_kobj)
 		ret = sysfs_create_group(properties_kobj, &properties_attr_group);
-	}
 	if (!properties_kobj || ret) {
 		tlsc_err("failed to create board_properties\n");
+		kobject_put(properties_kobj);
+		properties_kobj = NULL;
 	}
 }
 
@@ -495,16 +497,8 @@ int tssc_get_debug_info(struct i2c_client *i2c_client, char *p_data)
         p_data[0] = 0;
         p_data[1] = 0;
 
-#ifdef TLSC_TPD_PROXIMITY
-        if (tpd_prox_active) {
-            if(p_point[0]&0x4000) {
-                p_data[1] = 0xC0;
-            }
-            else {
-                p_data[1] = 0xE0;
-            }
-        }
-#endif
+	if (g_tp_drvdata->proximity_enabled)
+		p_data[1] = (p_point[0] & 0x4000) ? TLSC_PROX_NEAR : TLSC_PROX_FAR;
 
         p_data[2] = tcnt;
         act = 0;
@@ -538,12 +532,25 @@ int tssc_get_debug_info(struct i2c_client *i2c_client, char *p_data)
 }
 #endif
 
-static int tlsc6x_update_data(void)
+static void tlsc6x_report_proximity(struct tlsc6x_data *data, u8 state)
 {
-    struct tlsc6x_data *data = i2c_get_clientdata(this_client);
+	if (!data->proximity_enabled ||
+	    (state != TLSC_PROX_NEAR && state != TLSC_PROX_FAR) ||
+	    data->proximity_state == state)
+		return;
+
+	data->proximity_state = state;
+	pm_wakeup_event(&data->client->dev, 500);
+	input_report_abs(data->ps_input_dev, ABS_DISTANCE,
+			 state == TLSC_PROX_NEAR ? 0 : 5);
+	input_sync(data->ps_input_dev);
+}
+
+static int tlsc6x_update_data(struct tlsc6x_data *data, bool proximity_only)
+{
     struct ts_event *event = &data->event;
     u8 buf[20] = { 0 };
-    int ret = -1;
+	int ret;
     int i;
     u16 x, y;
     u8 ft_pressure, ft_size;
@@ -551,37 +558,23 @@ static int tlsc6x_update_data(void)
     u8 id = 0;
 
 #ifdef TLSC_APK_DEBUG
-    if (send_data_flag) {
-        tssc_get_debug_info(this_client,buf);
-    } else {
-        ret = tlsc6x_i2c_read(this_client, buf, 1, buf, 18);
-        if (ret < 0) {
-            tlsc_err("%s read_data i2c_rxdata failed: %d\n", __func__, ret);
-            return ret;
-        }
-    }
-#else
-    ret = tlsc6x_i2c_read(this_client, buf, 1, buf, 18);
-    if (ret < 0) {
-        tlsc_err("%s read_data i2c_rxdata failed: %d\n", __func__, ret);
-        return ret;
-    }
+	if (send_data_flag) {
+		tssc_get_debug_info(this_client, buf);
+	} else
 #endif
+	{
+		ret = tlsc6x_i2c_read(this_client, buf, 1, buf, 18);
+		if (ret != 2)
+			return ret < 0 ? ret : -EIO;
+	}
 
     memset(event, 0, sizeof(struct ts_event));
     event->touch_point = buf[2] & 0x07;
 
-#ifdef TLSC_TPD_PROXIMITY
-	if (tpd_prox_active && (event->touch_point == 0)) {
-		if (((buf[1] == 0xc0) || (buf[1] == 0xe0)) && (tpd_prox_old_state != buf[1])) {
-			input_report_abs(data->ps_input_dev, ABS_DISTANCE, (buf[1] == 0xc0) ? 0 : 1);
-			/*input_mt_sync(data->ps_input_dev);*/
-			input_sync(data->ps_input_dev);
-			tlsc_info("%s proximity report is %d.\n", __func__, (buf[1] == 0xc0) ? 0 : 1);
-		}
-		tpd_prox_old_state = buf[1];
-	}
-#endif
+	if (!event->touch_point)
+		tlsc6x_report_proximity(data, buf[1]);
+	if (proximity_only)
+		return 0;
 
 	for (i = 0; i < TS_MAX_FINGER; i++) {
 		if ((buf[6 * i + 3] & 0xc0) == 0xc0) {
@@ -671,47 +664,65 @@ static int tlsc6x_update_data(void)
 
 }
 
-static irqreturn_t touch_event_thread_handler(int irq, void *devid)
+
+static void tlsc6x_handle_irq_locked(struct tlsc6x_data *data)
 {
-	struct tlsc6x_data *data = i2c_get_clientdata(this_client);
 #ifdef TLSC_GESTRUE
 	u8 gesture_reg = 0xd3;
-	u8 gesture_code = 0;
+	u8 gesture_code;
+#endif
 
 	if (data->suspended) {
-		if (!tlsc6x_gesture_wake_armed)
-			return IRQ_HANDLED;
+		if (data->proximity_enabled) {
+			tlsc6x_update_data(data, true);
+			return;
+		}
+#ifdef TLSC_GESTRUE
 		/* Gesture firmware reports the gesture code in register D3. */
-		if (tlsc6x_i2c_read(this_client, &gesture_reg, 1,
-				&gesture_code, 1) == 2 &&
+		if (tlsc6x_gesture_wake_armed &&
+		    tlsc6x_i2c_read(data->client, &gesture_reg, 1,
+				   &gesture_code, 1) == 2 &&
 		    gesture_code == TLSC_GESTURE_DOUBLE_TAP) {
 			input_report_key(data->input_dev, KEY_WAKEUP, 1);
 			input_sync(data->input_dev);
 			input_report_key(data->input_dev, KEY_WAKEUP, 0);
 			input_sync(data->input_dev);
-			pm_wakeup_event(&this_client->dev, 500);
+			pm_wakeup_event(&data->client->dev, 500);
 			tlsc_info("gesture wake event: 0x%02x\n", gesture_code);
 		}
-		return IRQ_HANDLED;
-	}
 #endif
+		return;
+	}
 
 	if (tpd_cdev->bbat_test_enter) {
-		if (tpd_cdev->bbat_int_test == false) {
+		if (!tpd_cdev->bbat_int_test) {
 			tpd_cdev->bbat_int_test = true;
 			complete(&tpd_cdev->bbat_test_completion);
 			tlsc_info("%s tpd int BBAT test success", __func__);
 		}
-		return IRQ_HANDLED;
+		return;
 	}
 
-	tlsc6x_update_data();
+	tlsc6x_update_data(data, false);
 
 #ifdef CONFIG_TLSC_POINT_REPORT_CHECK
-	cancel_delayed_work(&data->point_report_check_work);
-	queue_delayed_work(data->tlsc_workqueue, &data->point_report_check_work, msecs_to_jiffies(200));
+	mod_delayed_work(data->tlsc_workqueue, &data->point_report_check_work,
+			 msecs_to_jiffies(200));
 #endif
+}
 
+static irqreturn_t touch_event_thread_handler(int irq, void *devid)
+{
+	struct tlsc6x_data *data = devid;
+
+	mutex_lock(&data->action_mutex);
+	if (data->system_suspended) {
+		data->irq_pending = true;
+		pm_wakeup_event(&data->client->dev, 500);
+	} else {
+		tlsc6x_handle_irq_locked(data);
+	}
+	mutex_unlock(&data->action_mutex);
 	return IRQ_HANDLED;
 }
 
@@ -741,34 +752,34 @@ void tlsc6x_tpd_reset(void)
 	tlsc6x_tpd_reset_force();
 }
 
-unsigned char real_suspend_flag = 0;
-int tlsc6x_do_suspend(void)
+unsigned char real_suspend_flag;
+
+/* All screen and sensor mode changes are serialized by action_mutex. */
+static void tlsc6x_suspend_locked(struct tlsc6x_data *data)
 {
-	int ret = -1;
+	int ret;
 #ifdef TLSC_GESTRUE
-	u8 gesture_command[2] = { 0xd0, 0x01 };
+	u8 gesture_command[] = { 0xd0, 0x01 };
 #endif
 
-	TLSC_FUNC_ENTER();
-	if (g_tp_drvdata->suspended) {
-		tlsc_info("Already in suspend state.\n");
-		return 0;
-	}
-	mutex_lock(&g_tp_drvdata->action_mutex);
+	if (data->suspended)
+		return;
 
 #ifdef TLSC_ESD_HELPER_EN
 	hrtimer_cancel(&tpd_esd_kthread_timer);
 #endif
+	tlsc6x_clear_report_data(data);
+	data->suspended = true;
 
-#ifdef TLSC_TPD_PROXIMITY
-	if (tpd_prox_active) {
-		real_suspend_flag = 0;
-		enable_irq_wake(this_client->irq);
-		g_tp_drvdata->suspended = true;
-		mutex_unlock(&g_tp_drvdata->action_mutex);
-		return 0;
+	/* A call can blank the display while it is waiting for a far event. */
+	if (data->proximity_enabled) {
+		ret = enable_irq_wake(data->client->irq);
+		if (ret)
+			dev_warn(&data->client->dev, "proximity IRQ wake failed: %d\n", ret);
+		else
+			data->proximity_irq_wake = true;
+		return;
 	}
-#endif
 
 #ifdef TLSC_GESTRUE
 	if (tlsc6x_double_tap_wake_enabled) {
@@ -777,19 +788,15 @@ int tlsc6x_do_suspend(void)
 		ret = g_mccode == 1 ? 0 : tlsc6x_load_gesture_binlib();
 		if (!ret) {
 			ret = tlsc6x_i2c_write(this_client, gesture_command,
-					sizeof(gesture_command));
-			/* i2c_transfer returns one completed message on success. */
+					       sizeof(gesture_command));
 			ret = ret == 1 ? 0 : (ret < 0 ? ret : -EIO);
 		}
-		if (!ret) {
-			ret = enable_irq_wake(this_client->irq);
-		}
+		if (!ret)
+			ret = enable_irq_wake(data->client->irq);
 		if (!ret) {
 			tlsc6x_gesture_wake_armed = true;
-			g_tp_drvdata->suspended = true;
-			mutex_unlock(&g_tp_drvdata->action_mutex);
 			tlsc_info("gesture wake mode enabled\n");
-			return 0;
+			return;
 		}
 		tlsc_err("gesture wake setup failed: %d, falling back to deep suspend\n", ret);
 	}
@@ -797,24 +804,24 @@ int tlsc6x_do_suspend(void)
 
 	tlsc_irq_disable();
 	ret = tlsc6x_write_reg(this_client, 0xa5, 0x03);
-	if (ret < 0) {
+	if (ret != 1)
 		tlsc_err("tlsc6x error::setup suspend fail!\n");
-	}
 	real_suspend_flag = 1;
-	tlsc6x_clear_report_data(g_tp_drvdata);
+}
 
-	g_tp_drvdata->suspended = true;
-	mutex_unlock(&g_tp_drvdata->action_mutex);
+int tlsc6x_do_suspend(void)
+{
+	struct tlsc6x_data *data = g_tp_drvdata;
 
+	mutex_lock(&data->action_mutex);
+	tlsc6x_suspend_locked(data);
+	mutex_unlock(&data->action_mutex);
 	return 0;
 }
 
 int tlsc6x_do_resume(void)
 {
 	TLSC_FUNC_ENTER();
-#ifdef TLSC_ESD_HELPER_EN
-	hrtimer_start(&tpd_esd_kthread_timer, ktime_set(3, 0), HRTIMER_MODE_REL);
-#endif
 	queue_work(g_tp_drvdata->tlsc_workqueue, &g_tp_drvdata->resume_work);
 	return 0;
 }
@@ -864,59 +871,43 @@ static void tlsc6x_ts_resume(struct early_suspend *handler)
 }
 #endif
 
+static void tlsc6x_resume_locked(struct tlsc6x_data *data)
+{
+	if (!data->suspended)
+		return;
+
+	if (data->proximity_irq_wake) {
+		disable_irq_wake(data->client->irq);
+		data->proximity_irq_wake = false;
+	}
+	if (!data->proximity_enabled) {
+#ifdef TLSC_GESTRUE
+		if (tlsc6x_gesture_wake_armed) {
+			disable_irq_wake(data->client->irq);
+			tlsc6x_gesture_wake_armed = false;
+		}
+#endif
+		tlsc6x_tpd_reset();
+		if (data->needKeepRamCode)
+			tlsc6x_write_reg(this_client, 0xa5, 0x00);
+	}
+
+	tlsc6x_clear_report_data(data);
+	real_suspend_flag = 0;
+	data->suspended = false;
+	tlsc_irq_enable();
+#ifdef TLSC_ESD_HELPER_EN
+	hrtimer_start(&tpd_esd_kthread_timer, ktime_set(3, 0), HRTIMER_MODE_REL);
+#endif
+}
+
 static void tlsc6x_resume_work(struct work_struct *work)
 {
-#ifdef TLSC_TPD_PROXIMITY
-	u8 test_val = 0;
-#endif
+	struct tlsc6x_data *data = container_of(work, struct tlsc6x_data, resume_work);
 
-	TLSC_FUNC_ENTER();
-
-	if (g_tp_drvdata->suspended == false) {
-		tlsc_info("Already in awake state");
-		return;
-	}
-	mutex_lock(&g_tp_drvdata->action_mutex);
-
-#ifdef TLSC_GESTRUE
-	if (tlsc6x_gesture_wake_armed) {
-		disable_irq_wake(this_client->irq);
-		tlsc6x_gesture_wake_armed = false;
-	}
-#endif
-
-	tlsc6x_tpd_reset();
-
-	if (g_tp_drvdata->needKeepRamCode) {	/* need wakeup cmd in this mode */
-		tlsc6x_write_reg(this_client, 0xa5, 0x00);
-	}
-	tlsc6x_clear_report_data(g_tp_drvdata);
-#ifdef TLSC_TPD_PROXIMITY
-	tlsc6x_prox_ctrl(tpd_prox_active);
-	if (tpd_prox_active) {
-		msleep(60);
-		if (tlsc6x_read_reg(this_client, 0xb0, &test_val) >= 0) {
-			if (test_val != 0x01) {
-				tlsc6x_prox_ctrl(tpd_prox_active);
-				tlsc_info("%s : tpd_prox_active enable fail.\n", __func__);
-			}
-		}
-	}
-
-	if (tpd_prox_active && (real_suspend_flag == 0)) {
-		disable_irq_wake(this_client->irq);
-		g_tp_drvdata->suspended = false;
-		mutex_unlock(&g_tp_drvdata->action_mutex);
-		return;
-	}
-#endif
-
-	tlsc_irq_enable();
-
-	real_suspend_flag = 0;
-	g_tp_drvdata->suspended = false;
-
-	mutex_unlock(&g_tp_drvdata->action_mutex);
+	mutex_lock(&data->action_mutex);
+	tlsc6x_resume_locked(data);
+	mutex_unlock(&data->action_mutex);
 }
 
 #ifdef TLSC_GESTRUE
@@ -924,26 +915,32 @@ static int tlsc6x_set_interactive(const char *val, const struct kernel_param *kp
 {
 	int ret = param_set_bool(val, kp);
 
-	if (ret || !g_tp_drvdata || !g_tp_drvdata->tlsc_workqueue)
+	if (ret || !tlsc6x_ready)
 		return ret;
 	if (tlsc6x_interactive)
 		return tlsc6x_do_resume();
-	/* Finish a previously queued resume before entering low-power mode. */
 	flush_work(&g_tp_drvdata->resume_work);
 	return tlsc6x_do_suspend();
 }
 
 static int tlsc6x_set_double_tap_wake(const char *val, const struct kernel_param *kp)
 {
+	struct tlsc6x_data *data;
+	bool enabled = tlsc6x_double_tap_wake_enabled;
 	int ret = param_set_bool(val, kp);
 
-	if (ret || tlsc6x_interactive || !g_tp_drvdata ||
-		!g_tp_drvdata->tlsc_workqueue)
+	if (ret || !tlsc6x_ready || tlsc6x_interactive ||
+	    enabled == tlsc6x_double_tap_wake_enabled)
 		return ret;
-	/* Apply setting changes while the display is already inactive too. */
-	tlsc6x_do_resume();
-	flush_work(&g_tp_drvdata->resume_work);
-	return tlsc6x_do_suspend();
+
+	data = g_tp_drvdata;
+	mutex_lock(&data->action_mutex);
+	if (data->suspended && !data->proximity_enabled) {
+		tlsc6x_resume_locked(data);
+		tlsc6x_suspend_locked(data);
+	}
+	mutex_unlock(&data->action_mutex);
+	return 0;
 }
 #endif
 
@@ -1496,28 +1493,22 @@ static int esd_check_work(void)
 		if (tlsc6x_read_reg(this_client, g_tlsc6x_esdadr, &g_tlsc6x_esdtar) < 0) {
 			g_tlsc6x_esdtar = 0x00;
 		}
-
-#ifdef TLSC_TPD_PROXIMITY
-		tlsc6x_prox_ctrl(tpd_prox_active);
-#endif
 	}
-#ifdef TLSC_TPD_PROXIMITY
-	if (tpd_prox_active) {
-		/* ps-function enabled, but tp lost this cmd  */
-		if (tlsc6x_read_reg(this_client, 0xb0, &test_val) >= 0) {
-			if (test_val != 0x01) {
-				tlsc6x_prox_ctrl(tpd_prox_active);
-			}
-		}
+	if (g_tp_drvdata->proximity_enabled &&
+	    (tlsc6x_read_reg(this_client, TLSC_PROX_ENABLE_REG, &test_val) != 2 ||
+	     test_val != 1)) {
+		if (tlsc6x_write_reg(this_client, TLSC_PROX_ENABLE_REG, 1) == 1)
+			mod_delayed_work(g_tp_drvdata->tlsc_workqueue,
+					 &g_tp_drvdata->proximity_work,
+					 msecs_to_jiffies(TLSC_PROX_SETTLE_MS));
 	}
-#endif
 
 	return ret;
 }
 
 static int esd_checker_handler(void *unused)
 {
-	ktime_t ktime;
+	struct tlsc6x_data *data = unused;
 
 	if (g_mccode == 0) {
 		g_tlsc6x_esdadr = 0xe0;
@@ -1528,31 +1519,28 @@ static int esd_checker_handler(void *unused)
 		g_tlsc6x_esdtar = 0x00;
 	}
 
-	do {
-		wait_event_interruptible(tpd_esd_waiter, tpd_esd_flag != 0);
-		tpd_esd_flag = 0;
+	while (!kthread_should_stop()) {
+		wait_event_interruptible(tpd_esd_waiter,
+					 READ_ONCE(tpd_esd_flag) || kthread_should_stop());
+		if (kthread_should_stop())
+			break;
+		WRITE_ONCE(tpd_esd_flag, 0);
 
-		ktime = ktime_set(4, 0);
-		hrtimer_start(&tpd_esd_kthread_timer, ktime, HRTIMER_MODE_REL);
-
-		if (g_tp_drvdata->esdHelperFreeze) {
-			continue;
+		mutex_lock(&data->action_mutex);
+		if (!data->suspended) {
+			hrtimer_start(&tpd_esd_kthread_timer, ktime_set(4, 0), HRTIMER_MODE_REL);
+			if (!data->system_suspended && !data->esdHelperFreeze && !auto_upd_busy)
+				esd_check_work();
 		}
-#if (defined TPD_AUTO_UPGRADE_PATH) || (defined TLSC_APK_DEBUG)
-		if (auto_upd_busy) {
-			continue;
-		}
-#endif
-		esd_check_work();
-
-	} while (!kthread_should_stop());
+		mutex_unlock(&data->action_mutex);
+	}
 
 	return 0;
 }
 
 enum hrtimer_restart tpd_esd_kthread_hrtimer_func(struct hrtimer *timer)
 {
-	tpd_esd_flag = 1;
+	WRITE_ONCE(tpd_esd_flag, 1);
 	wake_up_interruptible(&tpd_esd_waiter);
 
 	return HRTIMER_NORESTART;
@@ -1588,160 +1576,151 @@ int tlsc6x_chip_self_test(void)
 
 #endif
 
-#ifdef TLSC_TPD_PROXIMITY
-int tlsc6x_set_suspend_in_proximity(void)
+static void tlsc6x_proximity_work(struct work_struct *work)
 {
-	int ret = -1;
+	struct tlsc6x_data *data = container_of(to_delayed_work(work),
+					      struct tlsc6x_data, proximity_work);
+	u8 buf[18] = { 0 };
 
-	TLSC_FUNC_ENTER();
+	mutex_lock(&data->action_mutex);
+	/* A client needs a sample even if the distance has not changed. */
+	if (data->proximity_enabled && !data->system_suspended &&
+	    !data->proximity_state &&
+	    tlsc6x_i2c_read(data->client, buf, 1, buf, sizeof(buf)) == 2 &&
+	    !(buf[2] & 0x07))
+		tlsc6x_report_proximity(data, buf[1]);
+	mutex_unlock(&data->action_mutex);
+}
 
-	disable_irq_wake(this_client->irq);
-	tlsc_irq_disable();
-	ret = tlsc6x_write_reg(this_client, 0xa5, 0x03);
-	if (ret < 0) {
-		tlsc_err("tlsc6x error::setup suspend fail!\n");
+static ssize_t enable_show(struct device *dev, struct device_attribute *attr,
+			   char *buf)
+{
+	struct tlsc6x_data *data = dev_get_drvdata(dev);
+
+	return sysfs_emit(buf, "ps enable %u\n", READ_ONCE(data->proximity_enabled));
+}
+
+static ssize_t enable_store(struct device *dev, struct device_attribute *attr,
+			    const char *buf, size_t count)
+{
+	struct tlsc6x_data *data = dev_get_drvdata(dev);
+	unsigned int handle, enable;
+	unsigned long flags;
+	bool was_suspended;
+	int ret = 0;
+
+	/* sensors.unisoc sends "<handle> <enable>". */
+	if (sscanf(buf, "%u %u", &handle, &enable) != 2 ||
+	    handle != TLSC_PROX_HANDLE || enable > 1)
+		return -EINVAL;
+
+	mutex_lock(&data->action_mutex);
+	if (enable == data->proximity_enabled)
+		goto out;
+
+	was_suspended = data->suspended;
+	if (was_suspended && enable)
+		tlsc6x_resume_locked(data);
+
+	ret = tlsc6x_write_reg(data->client, TLSC_PROX_ENABLE_REG, enable);
+	if (ret >= 0)
+		ret = ret == 1 ? 0 : -EIO;
+	if (!ret) {
+		if (was_suspended && !enable)
+			tlsc6x_resume_locked(data);
+		data->proximity_enabled = enable;
+		if (enable) {
+			data->proximity_state = 0;
+			/* Let input core deliver the first sample on each activation. */
+			spin_lock_irqsave(&data->ps_input_dev->event_lock, flags);
+			input_abs_set_val(data->ps_input_dev, ABS_DISTANCE, -1);
+			spin_unlock_irqrestore(&data->ps_input_dev->event_lock, flags);
+			mod_delayed_work(data->tlsc_workqueue, &data->proximity_work,
+					 msecs_to_jiffies(TLSC_PROX_SETTLE_MS));
+		} else {
+			cancel_delayed_work(&data->proximity_work);
+		}
 	}
-	real_suspend_flag = 1;
-	tlsc6x_clear_report_data(g_tp_drvdata);
+	if (was_suspended)
+		tlsc6x_suspend_locked(data);
+
+out:
+	mutex_unlock(&data->action_mutex);
+	if (ret)
+		return ret;
+	return count;
+}
+
+/* Match the stock control ABI: samples go straight to evdev, without a FIFO. */
+static ssize_t batch_store(struct device *dev, struct device_attribute *attr,
+			   const char *buf, size_t count)
+{
+	return count;
+}
+
+static ssize_t flush_store(struct device *dev, struct device_attribute *attr,
+			   const char *buf, size_t count)
+{
+	/* The stock proximity interface exposes no flush completion event. */
+	return count;
+}
+
+static DEVICE_ATTR_RW(enable);
+/* The vendor HAL opens these command files with O_RDWR. */
+static DEVICE_ATTR(batch, 0644, NULL, batch_store);
+static DEVICE_ATTR(flush, 0644, NULL, flush_store);
+
+static struct attribute *tlsc6x_proximity_attrs[] = {
+	&dev_attr_enable.attr,
+	&dev_attr_batch.attr,
+	&dev_attr_flush.attr,
+	NULL,
+};
+ATTRIBUTE_GROUPS(tlsc6x_proximity);
+
+static int tlsc6x_proximity_init(struct tlsc6x_data *data)
+{
+	struct input_dev *input;
+	int ret;
+
+	input = input_allocate_device();
+	if (!input)
+		return -ENOMEM;
+
+	input->name = "alps_pxy";
+	input_set_abs_params(input, ABS_DISTANCE, 0, 5, 0, 0);
+	input_abs_set_val(input, ABS_DISTANCE, -1);
+	ret = input_register_device(input);
+	if (ret) {
+		input_free_device(input);
+		return ret;
+	}
+	data->ps_input_dev = input;
+
+	data->proximity_class = class_create(THIS_MODULE, "sprd-tpd");
+	if (IS_ERR(data->proximity_class)) {
+		ret = PTR_ERR(data->proximity_class);
+		goto unregister_input;
+	}
+
+	data->proximity_dev = device_create_with_groups(data->proximity_class,
+						       NULL, 0, data,
+						       tlsc6x_proximity_groups, "device");
+	if (IS_ERR(data->proximity_dev)) {
+		ret = PTR_ERR(data->proximity_dev);
+		goto destroy_class;
+	}
 
 	return 0;
+
+destroy_class:
+	class_destroy(data->proximity_class);
+unregister_input:
+	input_unregister_device(input);
+	data->ps_input_dev = NULL;
+	return ret;
 }
 
-static int tlsc6x_prox_ctrl(int enable)
-{
-	TLSC_FUNC_ENTER();
-	/* default is not far, not near */
-	tpd_prox_old_state = 0xf0;
-	if (enable == 1) {
-		tpd_prox_active = 1;
-		tlsc6x_write_reg(this_client, 0xb0, 0x01);
-	} else if (enable == 0) {
-		tpd_prox_active = 0;
-		tlsc6x_write_reg(this_client, 0xb0, 0x00);
-	}
-
-	tlsc_info("%s: tpd_prox_active is %d\n", __func__, tpd_prox_active);
-	return 1;
-}
-
-static ssize_t tlsc6x_prox_enable_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-	return snprintf(buf, PAGE_SIZE, "ps enable %d\n", tpd_prox_active);
-}
-
-static ssize_t tlsc6x_prox_enable_store(struct device *dev, struct device_attribute *attr, const char *buf,
-					size_t count)
-{
-	unsigned int enable;
-	int ret = 0;
-
-	TLSC_FUNC_ENTER();
-	ret = kstrtouint(buf, 0, &enable);
-	if (ret)
-		return -EINVAL;
-	enable = (enable > 0) ? 1 : 0;
-
-	mutex_lock(&g_tp_drvdata->action_mutex);
-	if (!real_suspend_flag) {
-		tlsc6x_prox_ctrl(enable);
-		if (!enable && g_tp_drvdata->suspended) {
-			tlsc6x_set_suspend_in_proximity();
-		}
-	} else {
-		tpd_prox_active = enable;
-	}
-	mutex_unlock(&g_tp_drvdata->action_mutex);
-
-	return count;
-
-}
-
-static DEVICE_ATTR(proximity, 0664, tlsc6x_prox_enable_show, tlsc6x_prox_enable_store);
-
-/* default cmd interface(refer to sensor HAL):"/sys/class/sprd-tpd/device/proximity" */
-static void tlsc6x_prox_cmd_path_init(void)
-{
-	sprd_tpd_class = class_create(THIS_MODULE, "sprd-tpd");
-	if (IS_ERR(sprd_tpd_class)) {
-		tlsc_err("tlsc6x error::create sprd-tpd fail\n");
-	} else {
-		sprd_ps_cmd_dev = device_create(sprd_tpd_class, NULL, 0, NULL, "device");
-		if (IS_ERR(sprd_ps_cmd_dev)) {
-			tlsc_err("tlsc6x error::create ges&ps cmd-io fail\n");
-		} else {
-			/* sys/class/sprd-tpd/device/proximity */
-			if (device_create_file(sprd_ps_cmd_dev, &dev_attr_proximity) < 0) {
-				tlsc_err("tlsc6x error::create device file fail(%s)!\n", dev_attr_proximity.attr.name);
-			}
-		}
-	}
-
-}
-
-static ssize_t tpd_psensor_enable_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-	return snprintf(buf, 64, "%d\n", tpd_prox_active);
-}
-
-static ssize_t tpd_psensor_enable_store(struct device *dev, struct device_attribute *attr, const char *buf,
-					size_t count)
-{
-	unsigned int enable;
-	int ret = 0;
-
-	TLSC_FUNC_ENTER();
-
-	ret = kstrtouint(buf, 0, &enable);
-	if (ret)
-		return -EINVAL;
-
-	enable = (enable > 0) ? 1 : 0;
-	mutex_lock(&g_tp_drvdata->action_mutex);
-	if (!real_suspend_flag) {
-		tlsc6x_prox_ctrl(enable);
-		if (!enable && g_tp_drvdata->suspended) {
-			tlsc6x_set_suspend_in_proximity();
-		}
-	} else {
-		tpd_prox_active = enable;
-	}
-	mutex_unlock(&g_tp_drvdata->action_mutex);
-
-	return count;
-
-}
-
-static ssize_t tpd_psensor_flush_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-	return snprintf(buf, 64, "%d\n", tpd_prox_active);
-}
-
-static ssize_t tpd_psensor_flush_store(struct device *dev, struct device_attribute *attr, const char *buf,
-					size_t count)
-{
-	struct tlsc6x_data *data = i2c_get_clientdata(this_client);
-
-	input_report_abs(data->ps_input_dev, ABS_DISTANCE, -1);
-	/* input_mt_sync(data->ps_input_dev); */
-	input_sync(data->ps_input_dev);
-
-	return count;
-
-}
-
-static DEVICE_ATTR(enable, 0644, tpd_psensor_enable_show, tpd_psensor_enable_store);
-static DEVICE_ATTR(flush, 0644, tpd_psensor_flush_show, tpd_psensor_flush_store);
-
-static struct attribute *tpd_attributes[] = {
-	&dev_attr_enable.attr,
-	&dev_attr_flush.attr,
-	NULL
-};
-
-static struct attribute_group tpd_attribute_group = {
-	.attrs = tpd_attributes
-};
-#endif
 static int tlsc6x_request_irq_work(void)
 {
 	int ret = 0;
@@ -1751,8 +1730,8 @@ static int tlsc6x_request_irq_work(void)
 
 	ret = request_threaded_irq(this_client->irq,
 				   NULL, touch_event_thread_handler,
-				   IRQF_TRIGGER_FALLING | IRQF_ONESHOT | IRQF_NO_SUSPEND,
-				   "tlsc6x_tpd_irq", NULL);
+				   IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
+				   "tlsc6x_tpd_irq", g_tp_drvdata);
 	if (ret < 0) {
 		tlsc_err("Request irq thread error!");
 		return  ret;
@@ -1767,132 +1746,21 @@ static void tlsc_fw_upgrade(struct work_struct *work)
 	tlsc6x_do_update_ifneed();
 }
 
-#if defined (HUB_TP_PS_ENABLE) && (HUB_TP_PS_ENABLE == 1)
-static struct class ps_sensor_class = {
-	.name = "tp_ps",
-	.owner = THIS_MODULE,
-};
-
-static ssize_t delay_show(struct class *class,
-		struct class_attribute *attr,
-		char *buf)
-{
-	return snprintf(buf, 8, "%d\n", 200);
-}
-
-static ssize_t delay_store(struct class *class,
-		struct class_attribute *attr,
-		const char *buf, size_t count)
-{
-	return count;
-}
-
-static CLASS_ATTR_RW(delay);
-
-
-static ssize_t enable_show(struct class *class,
-		struct class_attribute *attr,
-		char *buf)
-{
-	return snprintf(buf, 8, "%d\n", tpd_prox_active);
-}
-
-static ssize_t enable_store(struct class *class,
-		struct class_attribute *attr,
-		const char *buf, size_t count)
-{
-	unsigned int enable;
-	int ret = 0;
-	int handle;
-	TLSC_FUNC_ENTER();
-
-	ret = sscanf(buf, "%d %d\n", &handle, &enable);
-
-	if (ret != 2) {
-		tlsc_err("%s: sscanf tp_ps enable data error!!! ret = %d \n", __func__, ret);
-		return -EINVAL;
-	}
-
-	enable = (enable > 0) ? 1 : 0;
-	mutex_lock(&g_tp_drvdata->action_mutex);
-	if (!real_suspend_flag) {
-		tlsc6x_prox_ctrl(enable);
-		if (!enable && g_tp_drvdata->suspended) {
-			tlsc6x_set_suspend_in_proximity();
-		}
-	} else {
-		tpd_prox_active = enable;
-	}
-	mutex_unlock(&g_tp_drvdata->action_mutex);
-#ifdef CONFIG_TOUCHSCREEN_PSENSOR_REPORT_CHECK
-	if (enable) {
-		tlsc_info(" queue psensor_report_check_work success!");
-		cancel_delayed_work(&tpd_cdev->psensor_report_check_work);
-		queue_delayed_work(tpd_cdev->tpd_report_wq, &tpd_cdev->psensor_report_check_work, msecs_to_jiffies(200));
-	} else {
-		tlsc_info(" cancel psensor_report_check_work success!");
-		cancel_delayed_work(&tpd_cdev->psensor_report_check_work);
-	}
-#endif
-
-	return count;
-}
-
-static CLASS_ATTR_RW(enable);
-
-static ssize_t flush_show(struct class *class,
-		struct class_attribute *attr,
-		char *buf)
-{
-	return snprintf(buf, 64, "%d\n", tpd_prox_active);
-}
-
-static ssize_t flush_store(struct class *class,
-		struct class_attribute *attr,
-		const char *buf, size_t count)
-{
-	struct tlsc6x_data *data = i2c_get_clientdata(this_client);
-	static int flush_count = 0;
-	tlsc_err("%s:flush_store!!!\n", __func__);
-	if (flush_count % 2 == 0) {
-		input_report_abs(data->ps_input_dev, ABS_DISTANCE, -1);
-		flush_count = 1;
-	} else {
-		input_report_abs(data->ps_input_dev, ABS_DISTANCE, -2);
-		flush_count = 0;
-	}
-	/* input_mt_sync(data->ps_input_dev); */
-	input_sync(data->ps_input_dev);
-	return count;
-}
-
-static CLASS_ATTR_RW(flush);
-
-static ssize_t batch_store(struct class *class,
-		struct class_attribute *attr,
-		const char *buf, size_t count)
-{
-	return count;
-}
-
-static CLASS_ATTR_WO(batch);
-#endif
-
 #ifdef CONFIG_TLSC_POINT_REPORT_CHECK
 static void tlsc_point_report_check(struct work_struct *work)
 {
+	struct tlsc6x_data *data = container_of(to_delayed_work(work),
+					      struct tlsc6x_data, point_report_check_work);
 
-	struct tlsc6x_data *data = NULL;
-	TLSC_FUNC_ENTER();
-	data = container_of(work, struct tlsc6x_data, point_report_check_work.work);
-
-	tlsc6x_clear_report_data(data);
+	mutex_lock(&data->action_mutex);
+	if (!data->suspended)
+		tlsc6x_clear_report_data(data);
+	mutex_unlock(&data->action_mutex);
 }
 #endif
 
 static int tlsc6x_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
-	int ret = -1;
 	int err = 0;
 	struct input_dev *input_dev;
 	struct tlsc6x_platform_data *pdata = NULL;
@@ -1980,7 +1848,6 @@ static int tlsc6x_probe(struct i2c_client *client, const struct i2c_device_id *i
 #ifdef TLSC_REPORT_PRESSURE_EN
 	input_set_abs_params(input_dev, ABS_MT_PRESSURE, 0, 127, 0, 0);
 #endif
-	input_set_abs_params(input_dev, ABS_DISTANCE, -1, 1, 0, 0);	/* give this capability aways */
 	set_bit(EV_ABS, input_dev->evbit);
 	set_bit(EV_KEY, input_dev->evbit);
 
@@ -1991,69 +1858,12 @@ static int tlsc6x_probe(struct i2c_client *client, const struct i2c_device_id *i
 		goto exit_input_register_device_failed;
 	}
 
-#ifdef TLSC_TPD_PROXIMITY
-	tlsc6x_prox_cmd_path_init();
-	g_tp_drvdata->ps_input_dev = input_allocate_device();
-	if (!g_tp_drvdata->ps_input_dev) {
-		err = -ENOMEM;
-		tlsc_err("tlsc6x error::failed to allocate ps-input device\n");
-		goto exit_unregister_device;
-	}
-	g_tp_drvdata->ps_input_dev->name = "proximity_tp";
-
-#if defined (HUB_TP_PS_ENABLE) && (HUB_TP_PS_ENABLE == 1)
-	/*add class sysfs for tp_ps*/
-	err = class_register(&ps_sensor_class);
-	if (err < 0) {
-		tlsc_err("%s,Create fsys class failed (%d)\n", __func__, err);
-		goto err_class_creat;
-	}
-
-	err = class_create_file(&ps_sensor_class, &class_attr_delay);
-	if (err < 0) {
-		tlsc_err("%s, Create delay file failed (%d)\n", __func__, err);
-		goto exit_unregister_class;
-	}
-
-	err = class_create_file(&ps_sensor_class, &class_attr_enable);
-	if (err < 0) {
-		tlsc_err("%s, Create enable file failed (%d)\n", __func__, err);
-		goto exit_unregister_class;
-	}
-
-	err = class_create_file(&ps_sensor_class, &class_attr_flush);
-	if (err < 0) {
-		tlsc_err("%s, Create flush file failed (%d)\n", __func__, err);
-		goto exit_unregister_class;
-	}
-
-	err = class_create_file(&ps_sensor_class, &class_attr_batch);
-	if (err < 0) {
-		tlsc_err("%s, Create batch file failed (%d)\n", __func__, err);
-		goto exit_unregister_class;
-	}
-#endif
-	set_bit(EV_ABS, g_tp_drvdata->ps_input_dev->evbit);
-	input_set_capability(g_tp_drvdata->ps_input_dev, EV_ABS, ABS_DISTANCE);
-	input_set_abs_params(g_tp_drvdata->ps_input_dev, ABS_DISTANCE, -2, 1, 0, 0);
-	err = input_register_device(g_tp_drvdata->ps_input_dev);
-	if (err) {
-		tlsc_err("tlsc6x error::failed to register ps-input device: %s\n", dev_name(&client->dev));
-		goto exit_register_ps_device_failed;
-	}
-	err = sysfs_create_group(&g_tp_drvdata->ps_input_dev->dev.kobj, &tpd_attribute_group);
-	if (err) {
-		tlsc_err("input create group failed.\n");
-		goto exit_sysfs_create_group_failed;
-	}
-#endif
-
-#ifdef TOUCH_VIRTUAL_KEYS
-	tlsc6x_virtual_keys_init();
-#endif
-
 	INIT_WORK(&g_tp_drvdata->resume_work, tlsc6x_resume_work);
 	INIT_DELAYED_WORK(&g_tp_drvdata->fw_upgrade_work, tlsc_fw_upgrade);
+	INIT_DELAYED_WORK(&g_tp_drvdata->proximity_work, tlsc6x_proximity_work);
+#ifdef CONFIG_TLSC_POINT_REPORT_CHECK
+	INIT_DELAYED_WORK(&g_tp_drvdata->point_report_check_work, tlsc_point_report_check);
+#endif
 	g_tp_drvdata->tlsc_workqueue = create_singlethread_workqueue("tlsc6x_work");
 	if (!g_tp_drvdata->tlsc_workqueue) {
 		err = -ESRCH;
@@ -2077,44 +1887,39 @@ static int tlsc6x_probe(struct i2c_client *client, const struct i2c_device_id *i
 		tlsc_err("tlsc6x error::request irq failed %d\n", err);
 		goto exit_irq_request_failed;
 	}
+#ifdef TLSC_ESD_HELPER_EN
+	hrtimer_init(&tpd_esd_kthread_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+	tpd_esd_kthread_timer.function = tpd_esd_kthread_hrtimer_func;
+	tlsc6x_esd_task = kthread_run(esd_checker_handler, g_tp_drvdata, "tlsc6x_esd_helper");
+	if (IS_ERR(tlsc6x_esd_task))
+		dev_warn(&client->dev, "could not start ESD worker: %ld\n",
+			 PTR_ERR(tlsc6x_esd_task));
+	else
+		hrtimer_start(&tpd_esd_kthread_timer, ktime_set(30, 0), HRTIMER_MODE_REL);
+#endif
 #if defined(CONFIG_ADF)
 	g_tp_drvdata->fb_notif.notifier_call = ts_adf_event_handler;
 	g_tp_drvdata->fb_notif.priority = 1000;
-	ret = adf_register_client(&g_tp_drvdata->fb_notif);
-	if (ret) {
-		tlsc_err("tlsc6x error::unable to register fb_notifier: %d", ret);
-	}
+	err = adf_register_client(&g_tp_drvdata->fb_notif);
+	if (err)
+		tlsc_err("tlsc6x error::unable to register fb_notifier: %d", err);
 #elif defined(CONFIG_FB)
 	g_tp_drvdata->fb_notif.notifier_call = fb_notifier_callback;
-	ret = fb_register_client(&g_tp_drvdata->fb_notif);
-	if (ret) {
-		tlsc_err("tlsc6x error::Unable to register fb_notifier: %d", ret);
-	}
+	err = fb_register_client(&g_tp_drvdata->fb_notif);
+	if (err)
+		tlsc_err("tlsc6x error::Unable to register fb_notifier: %d", err);
 #elif defined(CONFIG_HAS_EARLYSUSPEND)
 	g_tp_drvdata->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
 	g_tp_drvdata->early_suspend.suspend = tlsc6x_ts_suspend;
 	g_tp_drvdata->early_suspend.resume = tlsc6x_ts_resume;
 	register_early_suspend(&g_tp_drvdata->early_suspend);
 #endif
-	ret = 0;
-
 #ifdef TLSC_APK_DEBUG
 	tlsc6x_create_apk_debug_channel(client);
 #endif
 
-#ifdef TLSC_ESD_HELPER_EN
-	{			/* esd issue: i2c monitor thread */
-		ktime_t ktime = ktime_set(30, 0);
-
-		hrtimer_init(&tpd_esd_kthread_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
-		tpd_esd_kthread_timer.function = tpd_esd_kthread_hrtimer_func;
-		hrtimer_start(&tpd_esd_kthread_timer, ktime, HRTIMER_MODE_REL);
-		kthread_run(esd_checker_handler, 0, "tlsc6x_esd_helper");
-	}
-#endif
-
-#ifdef CONFIG_TLSC_POINT_REPORT_CHECK
-	INIT_DELAYED_WORK(&g_tp_drvdata->point_report_check_work, tlsc_point_report_check);
+#ifdef TOUCH_VIRTUAL_KEYS
+	tlsc6x_virtual_keys_init();
 #endif
 	tlsc6x_get_tp_vendor_info();
 	tlsc6x_tpd_register_fw_class();
@@ -2126,27 +1931,35 @@ static int tlsc6x_probe(struct i2c_client *client, const struct i2c_device_id *i
 	}
 	tpd_cdev->TP_have_registered = true;
 	tpd_cdev->tp_chip_id = TS_CHIP_TLSC;
+	err = tlsc6x_proximity_init(g_tp_drvdata);
+	if (err)
+		dev_warn(&client->dev, "could not register proximity sensor: %d\n", err);
+#ifdef TLSC_GESTRUE
+	kernel_param_lock(THIS_MODULE);
+	tlsc6x_ready = true;
+	if (!tlsc6x_interactive)
+		tlsc6x_do_suspend();
+	kernel_param_unlock(THIS_MODULE);
+#endif
 	tlsc_info(" tlsc6x_probe success!");
 	return 0;
 
 exit_irq_request_failed:
+#ifdef CONFIG_PM_WAKELOCKS
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
+	wakeup_source_unregister(tlsc6x_wakelock);
+#else
+	wakeup_source_trash(&tlsc6x_wakelock);
+#endif
+#else
+	wake_lock_destroy(&tlsc6x_wakelock);
+#endif
+	device_init_wakeup(&client->dev, false);
 	destroy_workqueue(g_tp_drvdata->tlsc_workqueue);
 	mutex_destroy(&g_tp_drvdata->action_mutex);
 exit_create_workqueue_failed:
-#ifdef TLSC_TPD_PROXIMITY
-exit_sysfs_create_group_failed:
-	input_unregister_device(g_tp_drvdata->ps_input_dev);
-exit_register_ps_device_failed:
-#if defined (HUB_TP_PS_ENABLE) && (HUB_TP_PS_ENABLE == 1)
-exit_unregister_class:
-	dev_info(&client->dev, "unregister tp_ps_sensor_class.\n");
-	class_unregister(&ps_sensor_class);
-err_class_creat:
-#endif
-	input_free_device(g_tp_drvdata->ps_input_dev);
-exit_unregister_device:
-#endif
 	input_unregister_device(input_dev);
+	goto exit_input_dev_alloc_failed;
 exit_input_register_device_failed:
 	input_free_device(input_dev);
 exit_input_dev_alloc_failed:
@@ -2175,20 +1988,32 @@ exit_alloc_platform_data_failed:
 static int tlsc6x_remove(struct i2c_client *client)
 {
 	struct tlsc6x_data *drvdata = i2c_get_clientdata(client);
+	struct tlsc6x_platform_data *pdata;
 
 	TLSC_FUNC_ENTER();
+	if (!drvdata)
+		return 0;
+	pdata = drvdata->platform_data;
 
+#ifdef TLSC_GESTRUE
+	kernel_param_lock(THIS_MODULE);
+	tlsc6x_ready = false;
+	kernel_param_unlock(THIS_MODULE);
+#endif
+	if (drvdata->ps_input_dev) {
+		device_unregister(drvdata->proximity_dev);
+		class_destroy(drvdata->proximity_class);
+	}
 #ifdef TLSC_APK_DEBUG
 	tlsc6x_release_apk_debug_channel();
 #endif
-
-#ifdef TLSC_ESD_HELPER_EN
-	hrtimer_cancel(&tpd_esd_kthread_timer);
-#endif
-
-	if (drvdata == NULL) {
-		return 0;
+#ifdef TOUCH_VIRTUAL_KEYS
+	if (properties_kobj) {
+		sysfs_remove_group(properties_kobj, &properties_attr_group);
+		kobject_put(properties_kobj);
+		properties_kobj = NULL;
 	}
+#endif
 #if defined(CONFIG_ADF)
 	adf_unregister_client(&g_tp_drvdata->fb_notif);
 #elif defined(CONFIG_FB)
@@ -2197,22 +2022,58 @@ static int tlsc6x_remove(struct i2c_client *client)
 	unregister_early_suspend(&drvdata->early_suspend);
 #endif
 
-	free_irq(client->irq, drvdata);
-	input_unregister_device(drvdata->input_dev);
-	input_free_device(drvdata->input_dev);
-	mutex_destroy(&drvdata->action_mutex);
-
 	cancel_work_sync(&drvdata->resume_work);
-	cancel_delayed_work(&drvdata->fw_upgrade_work);
+	cancel_delayed_work_sync(&drvdata->fw_upgrade_work);
+#ifdef TLSC_ESD_HELPER_EN
+	if (!IS_ERR(tlsc6x_esd_task))
+		kthread_stop(tlsc6x_esd_task);
+	hrtimer_cancel(&tpd_esd_kthread_timer);
+#endif
+	if (drvdata->proximity_irq_wake)
+		disable_irq_wake(client->irq);
+#ifdef TLSC_GESTRUE
+	if (tlsc6x_gesture_wake_armed) {
+		disable_irq_wake(client->irq);
+		tlsc6x_gesture_wake_armed = false;
+	}
+#endif
+	free_irq(client->irq, drvdata);
+	cancel_delayed_work_sync(&drvdata->proximity_work);
+#ifdef CONFIG_TLSC_POINT_REPORT_CHECK
+	cancel_delayed_work_sync(&drvdata->point_report_check_work);
+#endif
 	destroy_workqueue(drvdata->tlsc_workqueue);
+	if (drvdata->ps_input_dev)
+		input_unregister_device(drvdata->ps_input_dev);
+	input_unregister_device(drvdata->input_dev);
+	mutex_destroy(&drvdata->action_mutex);
+#ifdef CONFIG_PM_WAKELOCKS
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
+	wakeup_source_unregister(tlsc6x_wakelock);
+#else
+	wakeup_source_trash(&tlsc6x_wakelock);
+#endif
+#else
+	wake_lock_destroy(&tlsc6x_wakelock);
+#endif
+	device_init_wakeup(&client->dev, false);
 
 	if (drvdata->reg_vdd) {
 		regulator_disable(drvdata->reg_vdd);
 		regulator_put(drvdata->reg_vdd);
 	}
+	gpio_free(pdata->irq_gpio_number);
+	gpio_free(pdata->reset_gpio_number);
+	if (gpio_is_valid(pdata->power_gpio_number))
+		gpio_free(pdata->power_gpio_number);
+	client->dev.platform_data = NULL;
+	i2c_set_clientdata(client, NULL);
+	g_tp_drvdata = NULL;
+	this_client = NULL;
+	real_suspend_flag = 0;
+	tpd_cdev->TP_have_registered = false;
+	kfree(pdata);
 	kfree(drvdata);
-	drvdata = NULL;
-	i2c_set_clientdata(client, drvdata);
 
 	return 0;
 }
@@ -2228,6 +2089,37 @@ static const struct of_device_id tlsc6x_of_match[] = {
 	{}
 };
 
+static int __maybe_unused tlsc6x_system_suspend(struct device *dev)
+{
+	struct tlsc6x_data *data = dev_get_drvdata(dev);
+
+	mutex_lock(&data->action_mutex);
+	data->system_suspended = true;
+	mutex_unlock(&data->action_mutex);
+	return 0;
+}
+
+static int __maybe_unused tlsc6x_system_resume(struct device *dev)
+{
+	struct tlsc6x_data *data = dev_get_drvdata(dev);
+
+	mutex_lock(&data->action_mutex);
+	data->system_suspended = false;
+	/* Wake IRQs can be replayed before the parent I2C adapter resumes. */
+	if (data->irq_pending) {
+		data->irq_pending = false;
+		tlsc6x_handle_irq_locked(data);
+	}
+	if (data->proximity_enabled && !data->proximity_state)
+		mod_delayed_work(data->tlsc_workqueue, &data->proximity_work,
+				 msecs_to_jiffies(TLSC_PROX_SETTLE_MS));
+	mutex_unlock(&data->action_mutex);
+	return 0;
+}
+
+static SIMPLE_DEV_PM_OPS(tlsc6x_pm_ops, tlsc6x_system_suspend,
+			 tlsc6x_system_resume);
+
 MODULE_DEVICE_TABLE(of, tlsc6x_of_match);
 static struct i2c_driver tlsc6x_driver = {
 	.probe = tlsc6x_probe,
@@ -2237,6 +2129,7 @@ static struct i2c_driver tlsc6x_driver = {
 		   .name = TS_NAME,
 		   .owner = THIS_MODULE,
 		   .of_match_table = tlsc6x_of_match,
+		   .pm = &tlsc6x_pm_ops,
 		   },
 };
 

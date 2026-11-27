@@ -196,8 +196,6 @@ struct tlsc6x_core {
 
 	struct input_dev *input;
 	struct workqueue_struct *tpd_wq;
-	struct workqueue_struct *tpd_report_wq;
-	struct delayed_work psensor_report_check_work;
 	struct delayed_work point_report_check_work;
 	struct completion bbat_test_completion;
 	struct completion pm_completion;
@@ -227,7 +225,6 @@ struct tlsc6x_core {
 	int (*tpd_shutdown)(struct tlsc6x_core *cdev);
 	int (*get_tp_self_test_result)(struct tlsc6x_core *cdev, char *buf);
 	int (*tp_self_test)(struct tlsc6x_core *cdev);
-	int (*tp_psensor_report_check)(struct tlsc6x_core *cdev);
 	int (*tp_bbat_test)(struct tlsc6x_core *cdev);
 };
 

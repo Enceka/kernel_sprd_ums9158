@@ -66,6 +66,8 @@ struct ts_event {
 struct tlsc6x_data {
 	struct input_dev *input_dev;
 	struct input_dev *ps_input_dev;
+	struct class *proximity_class;
+	struct device *proximity_dev;
 	struct i2c_client *client;
 	struct ts_event event;
 #if defined(CONFIG_ADF) || defined(CONFIG_FB)
@@ -75,6 +77,7 @@ struct tlsc6x_data {
 #endif
 	struct work_struct resume_work;
 	struct delayed_work fw_upgrade_work;
+	struct delayed_work proximity_work;
 	struct workqueue_struct *tlsc_workqueue;
 	int irq_gpio_number;
 	int reset_gpio_number;
@@ -83,6 +86,11 @@ struct tlsc6x_data {
 	int esdHelperFreeze;
 	bool irq_disabled;
 	bool suspended;
+	bool system_suspended;
+	bool irq_pending;
+	bool proximity_enabled;
+	bool proximity_irq_wake;
+	u8 proximity_state;
 	struct regulator *reg_vdd;
 	struct tlsc6x_platform_data *platform_data;
 	struct mutex action_mutex;

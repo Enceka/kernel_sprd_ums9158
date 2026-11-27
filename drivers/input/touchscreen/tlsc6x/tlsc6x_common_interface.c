@@ -35,10 +35,6 @@ int tlsc6x_tptest_result = 0;
 char tlsc6x_criteria_csv_name[MAX_NAME_LEN_50] = { 0 };
 char tlsc6x_vendor_name[MAX_NAME_LEN_50] = { 0 };
 
-#ifdef TLSC_TPD_PROXIMITY
-extern unsigned char tpd_prox_old_state;
-extern int tpd_prox_active;
-#endif
 
 struct tpvendor_t tlsc6x_vendor_l[] = {
 	{0x030F, "YKL_YUYE"},
@@ -243,38 +239,6 @@ static int tpd_test_cmd_show(struct ztp_device *cdev, char *buf)
 	return num_read_chars;
 }
 
-#ifdef TLSC_TPD_PROXIMITY
-static int tlsc_psensor_report_check(struct ztp_device *cdev)
-{
-	u8 buf[20] = { 0 };
-	int ret = -1;
-
-	TLSC_FUNC_ENTER();
-	ret = tlsc6x_i2c_read(g_tp_drvdata->client, buf, 1, buf, 18);
-    if (ret < 0) {
-        tlsc_err("%s read_data i2c_rxdata failed: %d\n", __func__, ret);
-#ifdef CONFIG_TOUCHSCREEN_PSENSOR_REPORT_CHECK
-		queue_delayed_work(cdev->tpd_report_wq, &cdev->psensor_report_check_work, msecs_to_jiffies(200));
-#endif
-		return ret;
-    }
-
-	if (tpd_prox_active) {
-		if (((buf[1] == 0xc0) || (buf[1] == 0xe0)) && (tpd_prox_old_state != buf[1])) {
-			tlsc6x_clear_report_data(g_tp_drvdata);
-			input_report_abs(g_tp_drvdata->ps_input_dev, ABS_DISTANCE, (buf[1] == 0xc0) ? 0 : 1);
-			input_sync(g_tp_drvdata->ps_input_dev);
-			tlsc_info("%s proximity report is %d.\n", __func__, (buf[1] == 0xc0) ? 0 : 1);
-		}
-	}
-	tpd_prox_old_state = buf[1];
-#ifdef CONFIG_TOUCHSCREEN_PSENSOR_REPORT_CHECK
-	queue_delayed_work(cdev->tpd_report_wq, &cdev->psensor_report_check_work, msecs_to_jiffies(200));
-#endif
-	return 0;
-}
-#endif
-
 static int tlsc6x_bbat_test(struct ztp_device *cdev)
 {
 	int ret = 0;
@@ -355,9 +319,6 @@ void tlsc6x_tpd_register_fw_class(void)
 	tpd_cdev->tp_resume_func = tlsc6x_tp_resume;
 	tpd_cdev->tp_suspend_func = tlsc6x_tp_suspend;
 	tpd_cdev->tpd_shutdown = tpd_tlsc6x_shutdown;
-#ifdef TLSC_TPD_PROXIMITY
-	tpd_cdev->tp_psensor_report_check = tlsc_psensor_report_check;
-#endif
 
 	tpd_cdev->max_x = g_tp_drvdata->platform_data->x_res_max;
 	tpd_cdev->max_y = g_tp_drvdata->platform_data->y_res_max;

@@ -15,14 +15,6 @@
 #ifndef _LINUX_TLSC6X_CONFIG_H_
 #define _LINUX_TLSC6X_CONFIG_H_
 
-/*
- * E5: no proximity sensor.  The board's tlsc6x@2e node carries only
- * TP_MAX_X/TP_MAX_Y/have-virtualkey and the two gpios - there is no
- * proximity property, and this is a 320x480 CMCC data-terminal, not a
- * handset held to a face.  Leaving TLSC_TPD_PROXIMITY on would register a
- * "tp_ps" class plus a psensor input device that nothing ever reads.
- */
-/* #define TLSC_TPD_PROXIMITY */
 #define TLSC_APK_DEBUG		/* apk debugger, close:undef */
 
 /*
@@ -53,6 +45,4 @@
  * layer, which this build no longer carries - see tlsc6x_core.h.
  */
 /* #define TLSC_REPORT_BY_ZTE_ALGO */
-/* E5: paired with TLSC_TPD_PROXIMITY above - no proximity hardware. */
-#define HUB_TP_PS_ENABLE 0
 #endif /* _LINUX_TLSC6X_CONFIG_H_ */

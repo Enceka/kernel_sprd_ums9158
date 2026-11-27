@@ -262,6 +262,7 @@ EXPORT_SYMBOL_GPL(tpd_copy_to_tp_firmware_data);
 static int __init tlsc6x_core_init(void)
 {
 	struct tlsc6x_core *cdev;
+	int ret;
 
 	cdev = kzalloc(sizeof(*cdev), GFP_KERNEL);
 	if (!cdev)
@@ -279,17 +280,15 @@ static int __init tlsc6x_core_init(void)
 	cdev->max_x = 320;		/* panel is 320x480, DT values win */
 	cdev->max_y = 480;
 
-	/* the chip driver queues its psensor report check on this one */
-	cdev->tpd_report_wq = alloc_ordered_workqueue("tlsc6x_report", 0);
-	if (!cdev->tpd_report_wq) {
-		kfree(cdev);
-		return -ENOMEM;
-	}
-
 	tlsc6x_cdev = cdev;
 
 	/* registers the i2c driver: the panel node is i2c-3 @0x2e */
-	return tlsc6x_init();
+	ret = tlsc6x_init();
+	if (ret) {
+		kfree(cdev);
+		tlsc6x_cdev = NULL;
+	}
+	return ret;
 }
 
 static void __exit tlsc6x_core_exit(void)
@@ -297,11 +296,6 @@ static void __exit tlsc6x_core_exit(void)
 	tlsc6x_exit();
 
 	if (tlsc6x_cdev) {
-		if (tlsc6x_cdev->tpd_report_wq) {
-			cancel_delayed_work_sync(
-				&tlsc6x_cdev->psensor_report_check_work);
-			destroy_workqueue(tlsc6x_cdev->tpd_report_wq);
-		}
 		tp_free_tp_firmware_data();
 		kfree(tlsc6x_cdev);
 		tlsc6x_cdev = NULL;
