@@ -360,6 +360,7 @@ int sipa_create_skb_sender(struct sipa_plat_drv_cfg *ipa,
 	}
 
 	*sender_pp = sender;
+	wake_up_process(sender->free_thread);
 
 	return 0;
 }

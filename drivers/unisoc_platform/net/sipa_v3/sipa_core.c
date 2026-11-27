@@ -2261,6 +2261,7 @@ static int sipa_plat_drv_probe(struct platform_device *pdev_p)
 	ipa->cp_flow = 0;
 	ipa->hrtimer_eb = true;
 	spin_lock_init(&ipa->flow_lock);
+	wake_up_process(ipa->set_rps_thread);
 
 	return ret;
 }

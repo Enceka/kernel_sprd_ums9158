@@ -738,6 +738,7 @@ cpu_cooling_register(struct device_node *np,
 		goto free_thread;
 
 	cpu_cdev->cdev = cdev;
+	wake_up_process(cpu_cdev->update_thread);
 
 	return cdev;
 

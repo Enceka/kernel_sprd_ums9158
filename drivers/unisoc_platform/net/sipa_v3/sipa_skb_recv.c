@@ -929,6 +929,7 @@ int sipa_create_skb_receiver(struct sipa_plat_drv_cfg *ipa,
 	}
 
 	*receiver_pp = receiver;
+	wake_up_process(receiver->fill_recv_thread);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(sipa_create_skb_receiver);

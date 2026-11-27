@@ -4,6 +4,8 @@
  */
 
 #include <linux/reciprocal_div.h>
+#include <linux/atomic.h>
+#include <linux/wait.h>
 #include <trace/hooks/binder.h>
 #include <trace/hooks/sched.h>
 #include "uni_sched.h"
@@ -116,6 +118,8 @@ static inline int util_fits_capacity(unsigned long util, unsigned long capacity,
 /* ========================= define data struct =========================== */
 struct rotation_data {
 	struct task_struct *rotation_thread;
+	wait_queue_head_t rotation_wait;
+	atomic_t rotation_pending;
 	struct task_struct *src_task;
 	struct task_struct *dst_task;
 	int src_cpu;
@@ -240,7 +244,8 @@ static void check_for_task_rotation(struct rq *src_rq)
 	double_rq_unlock(src_rq, dst_rq);
 
 	if (rd) {
-		wake_up_process(rd->rotation_thread);
+		atomic_set(&rd->rotation_pending, 1);
+		wake_up(&rd->rotation_wait);
 		trace_sched_task_rotation(rd->src_cpu, rd->dst_cpu,
 				rd->src_task->pid, rd->dst_task->pid);
 	}
@@ -271,11 +276,15 @@ static int __ref try_rotation_task(void *data)
 {
 	struct rotation_data *rd = data;
 
-	do {
+	while (!kthread_should_stop()) {
+		wait_event_idle(rd->rotation_wait,
+				kthread_should_stop() ||
+				atomic_read(&rd->rotation_pending));
+		if (kthread_should_stop())
+			break;
+		atomic_xchg(&rd->rotation_pending, 0);
 		do_rotation_task(rd);
-		set_current_state(TASK_INTERRUPTIBLE);
-		schedule();
-	} while (!kthread_should_stop());
+	}
 
 	return 0;
 }
@@ -298,6 +307,9 @@ static void rotation_task_init(void)
 		struct sched_param param = { .sched_priority = 49 };
 		struct task_struct *thread;
 
+		init_waitqueue_head(&rd->rotation_wait);
+		atomic_set(&rd->rotation_pending, 0);
+
 		thread = kthread_create(try_rotation_task, (void *)rd,
 					"rotation/%d", i);
 		if (IS_ERR(thread))
@@ -310,6 +322,7 @@ static void rotation_task_init(void)
 		}
 
 		rd->rotation_thread = thread;
+		wake_up_process(thread);
 	}
 
 	timer_setup(&rotation_timer, set_rotation_enable, 0);
