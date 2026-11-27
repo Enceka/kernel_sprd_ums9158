@@ -91,7 +91,7 @@ static int sprd_time_sync_ch_send_thread(void *data)
 	sched_setscheduler(sprd_time_sync_task, SCHED_RR, &param);
 
 	while (!kthread_should_stop()) {
-		set_current_state(TASK_UNINTERRUPTIBLE);
+		set_current_state(TASK_IDLE);
 		schedule();
 
 		sprd_send_ap_time();
