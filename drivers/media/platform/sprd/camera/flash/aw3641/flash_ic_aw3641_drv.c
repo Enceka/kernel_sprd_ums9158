@@ -53,7 +53,7 @@ static const char *const flash_gpio_names[FLASH_GPIO_MAX] = {
 
 static int g_high_level = 0;
 static int highlight_opened = 0;
-spinlock_t flash_lock;
+static DEFINE_SPINLOCK(flash_lock);
 
 static int sprd_flash_aw3641_open_pwm(void *drvd, uint8_t idx, int level)
 {
@@ -366,9 +366,7 @@ static const struct sprd_flash_driver_ops flash_gpio_ops = {
 static int sprd_flash_aw3641_probe(struct platform_device *pdev)
 {
 	int ret = 0;
-	u32 gpio_node = 0;
 	struct flash_driver_data *drv_data = NULL;
-	int gpio[FLASH_GPIO_MAX];
 	int j;
 
 	if (IS_ERR_OR_NULL(pdev))
@@ -380,17 +378,9 @@ static int sprd_flash_aw3641_probe(struct platform_device *pdev)
 	}
 	pr_info("flash-aw3641 probe\n");
 
-	ret = of_property_read_u32(pdev->dev.of_node, "flash-ic", &gpio_node);
-	if (ret) {
-		pr_err("no gpio flash\n");
-		return -ENODEV;
-	}
-
 	drv_data = devm_kzalloc(&pdev->dev, sizeof(*drv_data), GFP_KERNEL);
 	if (!drv_data)
 		return -ENOMEM;
-
-	pdev->dev.platform_data = (void *)drv_data;
 
 	ret = of_property_read_u32(pdev->dev.of_node,
 				   "torch-led-idx", &drv_data->torch_led_index);
@@ -398,35 +388,30 @@ static int sprd_flash_aw3641_probe(struct platform_device *pdev)
 		drv_data->torch_led_index = SPRD_FLASH_LED0;
 
 	for (j = 0; j < FLASH_GPIO_MAX; j++) {
-		gpio[j] = of_get_named_gpio(pdev->dev.of_node,
-					    flash_gpio_names[j], 0);
-		if (gpio_is_valid(gpio[j])) {
-			ret = devm_gpio_request(&pdev->dev,
-						gpio[j], flash_gpio_names[j]);
+		int gpio = of_get_named_gpio(pdev->dev.of_node,
+					     flash_gpio_names[j], 0);
 
-			if (ret) {
-				pr_err("flash gpio err\n");
-				goto exit;
-			}
+		if (gpio < 0)
+			return dev_err_probe(&pdev->dev, gpio, "get %s\n",
+					     flash_gpio_names[j]);
 
-			ret = gpio_direction_output(gpio[j], SPRD_FLASH_OFF);
-
-			if (ret) {
-				pr_err("flash gpio output err\n");
-				goto exit;
-			}
-		}
+		ret = devm_gpio_request_one(&pdev->dev, gpio, GPIOF_OUT_INIT_LOW,
+					    flash_gpio_names[j]);
+		if (ret)
+			return dev_err_probe(&pdev->dev, ret, "request %s\n",
+					     flash_gpio_names[j]);
+		drv_data->gpio_tab[j] = gpio;
 	}
-
-	memcpy((void *)drv_data->gpio_tab, (void *)gpio, sizeof(gpio));
 
 	ret = sprd_flash_aw3641_init(drv_data);
 	if (ret)
-		goto exit;
+		return ret;
 	ret = sprd_flash_register(&flash_gpio_ops, drv_data, SPRD_FLASH_REAR);
+	if (ret)
+		return ret;
 
-exit:
-	return ret;
+	pdev->dev.platform_data = drv_data;
+	return 0;
 }
 
 static int sprd_flash_aw3641_remove(struct platform_device *pdev)
