@@ -577,6 +577,11 @@ status = "okay";
 	sprd-freq = <1244 1244 1244 384 1536 1536 1866 1244 2133 1866>;
 };
 
+/* GPIO 191 belongs to the voice key on this board. The panel has no AVEE GPIO. */
+&panel {
+	avee-gpio = <0>;
+};
+
 /* Physical keypad, from the working stock FDT. */
 &aon {
 	sprd_keypad: keypad@1b0000 {
