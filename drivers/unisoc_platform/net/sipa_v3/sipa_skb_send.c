@@ -227,10 +227,15 @@ static int sipa_free_thread(void *data)
 	struct sched_param param = {.sched_priority = 90};
 
 	sched_setscheduler(current, SCHED_RR, &param);
+	wait_event_idle(sender->free_waitq, kthread_should_stop() ||
+			!smp_load_acquire(&sender->init_flag));
 	while (!kthread_should_stop()) {
 		wait_event_interruptible(sender->free_waitq,
+					 kthread_should_stop() ||
 					 !sipa_sender_ck_unfree(sender) ||
 					 sender->free_notify_net);
+		if (kthread_should_stop())
+			break;
 		sipa_free_sent_items();
 	}
 	return 0;
@@ -293,9 +298,9 @@ int sipa_sender_prepare_suspend(struct sipa_skb_sender *sender)
 int sipa_sender_prepare_resume(struct sipa_skb_sender *sender)
 {
 	atomic_set(&sender->check_suspend, 0);
-	if (unlikely(sender->init_flag)) {
-		wake_up_process(sender->free_thread);
-		sender->init_flag = false;
+	if (unlikely(READ_ONCE(sender->init_flag))) {
+		smp_store_release(&sender->init_flag, false);
+		wake_up(&sender->free_waitq);
 	}
 
 	return 0;
@@ -360,7 +365,6 @@ int sipa_create_skb_sender(struct sipa_plat_drv_cfg *ipa,
 	}
 
 	*sender_pp = sender;
-	wake_up_process(sender->free_thread);
 
 	return 0;
 }

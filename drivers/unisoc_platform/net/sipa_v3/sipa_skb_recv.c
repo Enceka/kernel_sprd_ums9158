@@ -788,9 +788,14 @@ static int sipa_fill_recv_thread(void *data)
 
 	sched_setscheduler(current, SCHED_RR, &param);
 
+	wait_event_idle(receiver->fill_recv_waitq, kthread_should_stop() ||
+			!smp_load_acquire(&receiver->init_flag));
 	while (!kthread_should_stop()) {
 		wait_event_interruptible(receiver->fill_recv_waitq,
+					 kthread_should_stop() ||
 					 sipa_check_need_fill_cnt());
+		if (kthread_should_stop())
+			break;
 
 		if (sipa_fill_all_free_fifo())
 			usleep_range(1000, 2000);
@@ -841,13 +846,17 @@ int sipa_receiver_prepare_suspend(struct sipa_skb_receiver *receiver)
 
 int sipa_receiver_prepare_resume(struct sipa_skb_receiver *receiver)
 {
+	int ret;
+
 	atomic_set(&receiver->check_suspend, 0);
 
-	wake_up_process(receiver->fill_recv_thread);
-
-	return sipa_hal_cmn_fifo_stop_recv(receiver->dev,
-					   receiver->ep->recv_fifo.idx,
-					   false);
+	ret = sipa_hal_cmn_fifo_stop_recv(receiver->dev,
+					  receiver->ep->recv_fifo.idx, false);
+	if (!ret) {
+		smp_store_release(&receiver->init_flag, false);
+		wake_up(&receiver->fill_recv_waitq);
+	}
+	return ret;
 }
 
 static void sipa_receiver_init(struct sipa_skb_receiver *receiver, u32 rsvd)
@@ -929,7 +938,6 @@ int sipa_create_skb_receiver(struct sipa_plat_drv_cfg *ipa,
 	}
 
 	*receiver_pp = receiver;
-	wake_up_process(receiver->fill_recv_thread);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(sipa_create_skb_receiver);
