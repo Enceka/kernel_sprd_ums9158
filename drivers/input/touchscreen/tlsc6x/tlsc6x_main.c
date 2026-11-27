@@ -575,6 +575,12 @@ static int tlsc6x_update_data(struct tlsc6x_data *data, bool proximity_only)
 		tlsc6x_report_proximity(data, buf[1]);
 	if (proximity_only)
 		return 0;
+	/* A zero-contact frame releases all slots. Its point data is unused. */
+	if (!event->touch_point) {
+		memset(finger_down, 0, sizeof(finger_down));
+		tlsc6x_clear_report_data(data);
+		return 0;
+	}
 
 	for (i = 0; i < TS_MAX_FINGER; i++) {
 		if ((buf[6 * i + 3] & 0xc0) == 0xc0) {
@@ -654,9 +660,6 @@ static int tlsc6x_update_data(struct tlsc6x_data *data, bool proximity_only)
 #endif
 #endif
 		}
-	}
-	if (event->touch_point == 0) {
-		tlsc6x_clear_report_data(data);
 	}
 	input_sync(data->input_dev);
 
