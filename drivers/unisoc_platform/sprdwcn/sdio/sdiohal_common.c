@@ -224,12 +224,19 @@ void sdiohal_atomic_sub(int count, atomic_t *value)
 	atomic_sub(count, value);
 }
 
-/* seam for thread */
+/*
+ * seam for thread
+ *
+ * The TX/RX threads sleep here whenever the bus is idle. Kernel threads ignore
+ * signals, so an interruptible wait behaves like the plain one while keeping
+ * the idle threads out of the load average.
+ */
 void sdiohal_tx_down(void)
 {
 	struct sdiohal_data_t *p_data = sdiohal_get_data();
 
-	wait_for_completion(&p_data->tx_completed);
+	while (wait_for_completion_interruptible(&p_data->tx_completed))
+		;
 }
 
 void sdiohal_tx_up(void)
@@ -243,7 +250,8 @@ void sdiohal_rx_down(void)
 {
 	struct sdiohal_data_t *p_data = sdiohal_get_data();
 
-	wait_for_completion(&p_data->rx_completed);
+	while (wait_for_completion_interruptible(&p_data->rx_completed))
+		;
 }
 
 void sdiohal_rx_up(void)

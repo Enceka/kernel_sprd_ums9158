@@ -101,7 +101,10 @@ static int pub_int_handle_thread(void *data)
 
 	set_user_nice(current, -20);
 	while (!kthread_should_stop()) {
-		wait_for_completion(&(sdio_int.pub_int_completion));
+		/* Idle wait; kernel threads ignore signals. */
+		while (wait_for_completion_interruptible(
+				&(sdio_int.pub_int_completion)))
+			;
 
 		ret = sprdwcn_bus_aon_readb(sdio_int.pub_int_sts0,
 			&(pub_int_sts0.reg));
