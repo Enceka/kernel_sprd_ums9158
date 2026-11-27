@@ -755,21 +755,21 @@ static int sprd_panel_gpio_request(struct device *dev,
 {
 	panel->info.avdd_gpio = devm_gpiod_get_optional(dev,
 					"avdd", GPIOD_ASIS);
-	if (IS_ERR_OR_NULL(panel->info.avdd_gpio))
-		DRM_WARN("can't get panel avdd gpio: %ld\n",
-				 PTR_ERR(panel->info.avdd_gpio));
+	if (IS_ERR(panel->info.avdd_gpio))
+		return dev_err_probe(dev, PTR_ERR(panel->info.avdd_gpio),
+				     "can't get panel avdd GPIO\n");
 
 	panel->info.avee_gpio = devm_gpiod_get_optional(dev,
 					"avee", GPIOD_ASIS);
-	if (IS_ERR_OR_NULL(panel->info.avee_gpio))
-		DRM_WARN("can't get panel avee gpio: %ld\n",
-				 PTR_ERR(panel->info.avee_gpio));
+	if (IS_ERR(panel->info.avee_gpio))
+		return dev_err_probe(dev, PTR_ERR(panel->info.avee_gpio),
+				     "can't get panel avee GPIO\n");
 
 	panel->info.reset_gpio = devm_gpiod_get_optional(dev,
 					"reset", GPIOD_ASIS);
-	if (IS_ERR_OR_NULL(panel->info.reset_gpio))
-		DRM_WARN("can't get panel reset gpio: %ld\n",
-				 PTR_ERR(panel->info.reset_gpio));
+	if (IS_ERR(panel->info.reset_gpio))
+		return dev_err_probe(dev, PTR_ERR(panel->info.reset_gpio),
+				     "can't get panel reset GPIO\n");
 
 	return 0;
 }
@@ -1526,10 +1526,8 @@ static int sprd_panel_probe(struct mipi_dsi_device *slave)
 	}
 
 	ret = sprd_panel_gpio_request(&slave->dev, panel);
-	if (ret) {
-		DRM_WARN("gpio is not ready, panel probe deferred\n");
-		return -EPROBE_DEFER;
-	}
+	if (ret)
+		return ret;
 
 	ret = sprd_panel_device_create(&slave->dev, panel);
 	if (ret)
