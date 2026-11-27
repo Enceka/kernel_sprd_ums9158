@@ -535,7 +535,7 @@ static void slog_bridge_data_move(struct slog_action *sba, int param)
 		while (!(ushort volatile)log_transport) {
 			dev_dbg(sb->dev, "wait log_transport=%d\n",
 				log_transport);
-			msleep(2000);
+			msleep_interruptible(2000);
 		}
 
 		kernel_vser_set_pass_mode(true);
